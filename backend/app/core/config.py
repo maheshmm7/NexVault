@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7 # 7 days
     DATABASE_URL: str = "sqlite:///./vaultify.db"
     
+    # Cookie Security Settings
+    COOKIE_SECURE: bool = False  # Set to True in production (HTTPS)
+    COOKIE_SAMESITE: str = "lax"  # 'lax', 'strict', or 'none'
+    
     # CORS Configuration - comma separated string or JSON list
     BACKEND_CORS_ORIGINS: Union[str, List[str]] = ["http://localhost:5173", "http://localhost:3000"]
 

@@ -79,9 +79,28 @@ export default function Settings() {
     // Profile states
     const [fullName,    setFullName]    = useState(user?.full_name   || '');
     const [displayName, setDisplayName] = useState(user?.display_name|| '');
-    const [avatarUrl,   setAvatarUrl]   = useState(() => localStorage.getItem(`${BRANDING.STORAGE_PREFIX}_local_avatar`) || user?.avatar_url || '');
+    const [avatarUrl,   setAvatarUrl]   = useState(() => {
+        if (user) {
+            return localStorage.getItem(`${BRANDING.STORAGE_PREFIX}_local_avatar_${user.id}`) || user?.avatar_url || '';
+        }
+        return '';
+    });
 
     const [email,       setEmail]       = useState(user?.email       || '');
+
+    useEffect(() => {
+        if (user) {
+            setFullName(user.full_name || '');
+            setDisplayName(user.display_name || '');
+            setEmail(user.email || '');
+            setAvatarUrl(localStorage.getItem(`${BRANDING.STORAGE_PREFIX}_local_avatar_${user.id}`) || user?.avatar_url || '');
+        } else {
+            setFullName('');
+            setDisplayName('');
+            setEmail('');
+            setAvatarUrl('');
+        }
+    }, [user]);
 
     const fileInputRef = useRef(null);
 
@@ -142,7 +161,8 @@ export default function Settings() {
         reader.onloadend = () => {
             const base64 = reader.result;
             setAvatarUrl(base64);
-            localStorage.setItem(`${BRANDING.STORAGE_PREFIX}_local_avatar`, base64);
+            const key = user ? `${BRANDING.STORAGE_PREFIX}_local_avatar_${user.id}` : `${BRANDING.STORAGE_PREFIX}_local_avatar`;
+            localStorage.setItem(key, base64);
             window.dispatchEvent(new Event(BRANDING.AVATAR_UPDATE_EVENT));
 
         };
@@ -154,7 +174,8 @@ export default function Settings() {
 
     const handleRemoveAvatar = () => {
         setAvatarUrl('');
-        localStorage.removeItem(`${BRANDING.STORAGE_PREFIX}_local_avatar`);
+        const key = user ? `${BRANDING.STORAGE_PREFIX}_local_avatar_${user.id}` : `${BRANDING.STORAGE_PREFIX}_local_avatar`;
+        localStorage.removeItem(key);
         window.dispatchEvent(new Event(BRANDING.AVATAR_UPDATE_EVENT));
 
     };

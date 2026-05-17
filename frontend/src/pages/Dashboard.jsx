@@ -15,6 +15,7 @@ import { useToast } from '../contexts/ToastContext';
 import { format } from 'date-fns';
 import { BRANDING } from '../config/branding';
 import LoadingScreen from '../components/LoadingScreen';
+import SafeChartContainer from '../components/charts/SafeChartContainer';
 
 const EMPTY_SUMMARY = {
   total_balance: 0, credit_used: 0, wallet_balance: 0,
@@ -284,7 +285,7 @@ export default function Dashboard() {
                 </div>
               </div>
               {trends.length > 0 ? (
-                <div className="flex-1 min-h-0">
+                <SafeChartContainer height={300}>
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={trends} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                       <defs>
@@ -307,7 +308,7 @@ export default function Dashboard() {
                       <Area type="monotone" dataKey="expense" stroke="#EF4444" strokeWidth={2} fillOpacity={1} fill="url(#gExpense)" />
                     </AreaChart>
                   </ResponsiveContainer>
-                </div>
+                </SafeChartContainer>
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center text-muted opacity-60">
                   <TrendingUp className="w-10 h-10 mb-3 opacity-30" />
@@ -324,7 +325,7 @@ export default function Dashboard() {
                 <h2 className="text-sm font-semibold text-main mb-3">Spending by Category</h2>
                 {categories.length > 0 ? (
                   <>
-                    <div className="w-full h-[160px]">
+                    <SafeChartContainer height={160} minHeight={120}>
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                           <Pie data={categories} innerRadius={45} outerRadius={70} paddingAngle={4} dataKey="value">
@@ -345,7 +346,7 @@ export default function Dashboard() {
                           />
                         </PieChart>
                       </ResponsiveContainer>
-                    </div>
+                    </SafeChartContainer>
                     <div className="mt-3 space-y-1.5 overflow-y-auto max-h-[100px] pr-1">
                       {categories.map((cat, i) => (
                         <div key={i} className="flex items-center justify-between gap-3">

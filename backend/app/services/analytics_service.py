@@ -70,13 +70,20 @@ def get_category_distribution(db: Session, user_id: str) -> list:
 
 
 def get_spending_trends(db: Session, user_id: str) -> list:
+    # Runtime engine dialect detection for dynamic database portability
+    bind = db.get_bind()
+    if bind.dialect.name == "postgresql":
+        day_expr = func.to_char(Transaction.timestamp, "YYYY-MM-DD")
+    else:
+        day_expr = func.strftime("%Y-%m-%d", Transaction.timestamp)
+
     results = db.query(
-        func.strftime("%Y-%m-%d", Transaction.timestamp).label("day"),
+        day_expr.label("day"),
         Transaction.type,
         func.sum(Transaction.amount).label("total"),
     ).filter(
         Transaction.user_id == user_id
-    ).group_by("day", Transaction.type).order_by("day").all()
+    ).group_by(day_expr, Transaction.type).order_by(day_expr).all()
 
     trends: dict = {}
     for row in results:

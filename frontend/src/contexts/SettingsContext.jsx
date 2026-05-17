@@ -76,23 +76,27 @@ export function SettingsProvider({ children }) {
         }, 800);
     }, []);
 
-    // ─── Hydrate from server on mount (once token is available) ──────────────
-    useEffect(() => {
-        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-        if (!token || serverSynced) return;
-
-        api.get('/users/me/settings')
-            .then(res => {
-                const s = res.data;
-                if (s.currency)            { setCurrencyState(s.currency);                       localStorage.setItem('currency', s.currency); }
-                if (s.theme)               { setThemeState(s.theme);                             localStorage.setItem('theme', s.theme); }
-                if (s.notifications)       { setNotificationsState(s.notifications);             localStorage.setItem('notifications', JSON.stringify(s.notifications)); }
-                if (s.couponPreferences)   { setCouponPreferencesState(s.couponPreferences);     localStorage.setItem('couponPreferences', JSON.stringify(s.couponPreferences)); }
-                if (s.dateTimePreferences) { setDateTimePreferencesState(s.dateTimePreferences); localStorage.setItem('dateTimePreferences', JSON.stringify(s.dateTimePreferences)); }
-                setServerSynced(true);
-            })
-            .catch(() => { /* network not ready yet — localStorage values remain active */ });
+    // ─── Hydrate from server on mount via active cookie session ─────────────
+    const triggerSync = useCallback(async () => {
+        try {
+            const res = await api.get('/users/me/settings');
+            const s = res.data;
+            if (s.currency)            { setCurrencyState(s.currency);                       localStorage.setItem('currency', s.currency); }
+            if (s.theme)               { setThemeState(s.theme);                             localStorage.setItem('theme', s.theme); }
+            if (s.notifications)       { setNotificationsState(s.notifications);             localStorage.setItem('notifications', JSON.stringify(s.notifications)); }
+            if (s.couponPreferences)   { setCouponPreferencesState(s.couponPreferences);     localStorage.setItem('couponPreferences', JSON.stringify(s.couponPreferences)); }
+            if (s.dateTimePreferences) { setDateTimePreferencesState(s.dateTimePreferences); localStorage.setItem('dateTimePreferences', JSON.stringify(s.dateTimePreferences)); }
+            setServerSynced(true);
+        } catch { 
+            // Network failure or unauthenticated cookie — keep standard defaults/local settings active
+        }
     }, []);
+
+    useEffect(() => {
+        if (!serverSynced) {
+            triggerSync();
+        }
+    }, [serverSynced, triggerSync]);
 
     // ─── Theme DOM sync ───────────────────────────────────────────────────────
     useEffect(() => {
@@ -146,6 +150,7 @@ export function SettingsProvider({ children }) {
                 setCouponPreferences,
                 dateTimePreferences,
                 setDateTimePreferences,
+                triggerSync,
             }}
         >
             {children}

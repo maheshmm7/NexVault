@@ -1,25 +1,27 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import api from '../services/api';
+import { useSettings } from './SettingsContext';
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const { triggerSync } = useSettings();
 
   useEffect(() => {
     const initAuth = async () => {
-      const token = localStorage.getItem('token');
-      if (token) {
-        try {
-          const response = await api.get('/users/me');
-          setUser(response.data);
-        } catch (error) {
+      try {
+        const response = await api.get('/users/me');
+        setUser(response.data);
+      } catch (error) {
+        // Safe check: 401 means no active session cookie, which is normal for unauth users
+        if (error.response && error.response.status !== 401) {
           console.error("Auth initialization failed", error);
-          localStorage.removeItem('token');
         }
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
     initAuth();
   }, []);
@@ -29,14 +31,14 @@ export const AuthProvider = ({ children }) => {
     formData.append('username', email); // OAuth2 expects username
     formData.append('password', password);
 
-    const response = await api.post('/auth/login', formData, {
+    await api.post('/auth/login', formData, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     });
     
-    localStorage.setItem('token', response.data.access_token);
-    
+    // Cookie is set automatically in HTTPOnly storage by browser
     const userResponse = await api.get('/users/me');
     setUser(userResponse.data);
+    await triggerSync(); // Immediately sync user settings upon login!
   };
 
   const signup = async (email, password, fullName) => {
@@ -49,9 +51,14 @@ export const AuthProvider = ({ children }) => {
     setUser(response.data);
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    setUser(null);
+  const logout = async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch (error) {
+      console.error("Session termination failed on server", error);
+    } finally {
+      setUser(null);
+    }
   };
 
   return (

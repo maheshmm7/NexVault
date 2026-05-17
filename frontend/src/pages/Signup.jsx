@@ -39,7 +39,7 @@ export default function Signup() {
     }
 
     try {
-      await signup(formData.full_name, formData.email, formData.password);
+      await signup(formData.email, formData.password, formData.full_name);
       navigate('/dashboard');
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to create account');

@@ -35,6 +35,8 @@ Create a `.env` file in the `/backend` directory or duplicate `/backend/.env.exa
 | `SECRET_KEY` | String | `"supersecretkey_change_in_production"` | Symmetric HMAC-SHA256 signature key for JWT validation. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Integer | `10080` (7 days) | Token duration lifespan before forcing session re-auth. |
 | `BACKEND_CORS_ORIGINS` | List/CSV | `"http://localhost:5173,http://localhost:3000"` | Allowed cross-origins permitted to execute API queries. |
+| `COOKIE_SECURE` | Boolean | `False` | Enforce SSL-only Secure cookie transmission in production. |
+| `COOKIE_SAMESITE` | String | `"lax"` | CSRF protection policy ('lax', 'strict', or 'none'). |
 
 ---
 

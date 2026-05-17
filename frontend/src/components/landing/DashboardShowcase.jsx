@@ -2,6 +2,7 @@ import { motion, useScroll, useTransform } from 'framer-motion';
 import { useRef } from 'react';
 import { BarChart3, ShieldCheck, Zap, Globe, TrendingUp, Wallet, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
+import SafeChartContainer from '../charts/SafeChartContainer';
 
 const MOCK_CHART_DATA = [
   { name: 'Mon', income: 4000, expense: 2400 },
@@ -108,7 +109,7 @@ export default function DashboardShowcase() {
                         <div className="px-3 py-1 rounded-full bg-white/5 text-[10px] font-bold">1Y</div>
                      </div>
                   </div>
-                  <div className="flex-1 w-full opacity-40">
+                  <SafeChartContainer className="opacity-40" height={260} minHeight={200}>
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={MOCK_CHART_DATA}>
                         <defs>
@@ -120,7 +121,7 @@ export default function DashboardShowcase() {
                         <Area type="monotone" dataKey="income" stroke="#3b82f6" strokeWidth={3} fill="url(#gIncomeL)" />
                       </AreaChart>
                     </ResponsiveContainer>
-                  </div>
+                  </SafeChartContainer>
                 </div>
               </div>
             </div>

@@ -17,13 +17,27 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
   const location = useLocation();
   const { user, logout } = useAuth();
 
-  const [localAvatar, setLocalAvatar] = useState(() => localStorage.getItem(`${BRANDING.STORAGE_PREFIX}_local_avatar`));
+  const [localAvatar, setLocalAvatar] = useState(() => {
+    if (user) {
+      return localStorage.getItem(`${BRANDING.STORAGE_PREFIX}_local_avatar_${user.id}`);
+    }
+    return null;
+  });
 
   useEffect(() => {
-    const handleAvatarUpdate = () => setLocalAvatar(localStorage.getItem(`${BRANDING.STORAGE_PREFIX}_local_avatar`));
+    const getScopedAvatar = () => {
+      if (user) {
+        return localStorage.getItem(`${BRANDING.STORAGE_PREFIX}_local_avatar_${user.id}`);
+      }
+      return null;
+    };
+
+    setLocalAvatar(getScopedAvatar());
+
+    const handleAvatarUpdate = () => setLocalAvatar(getScopedAvatar());
     window.addEventListener(BRANDING.AVATAR_UPDATE_EVENT, handleAvatarUpdate);
     return () => window.removeEventListener(BRANDING.AVATAR_UPDATE_EVENT, handleAvatarUpdate);
-  }, []);
+  }, [user]);
 
   const displayAvatar = localAvatar || user?.avatar_url;
 

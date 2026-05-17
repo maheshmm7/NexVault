@@ -1,29 +1,25 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { useAuth } from './AuthContext';
 
 const NotificationCenterContext = createContext(null);
 
 const MAX_NOTIFICATIONS = 50;
-const STORAGE_KEY = 'notificationInbox';
-
-function loadFromStorage() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveToStorage(notifications) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(notifications));
-  } catch {
-    // Storage quota exceeded — fail silently
-  }
-}
 
 export function NotificationCenterProvider({ children }) {
-  const [notifications, setNotifications] = useState(() => loadFromStorage());
+  const { user } = useAuth();
+  const [notifications, setNotifications] = useState([]);
+
+  // Dynamically partition browser notifications based on the authenticated user ID
+  const storageKey = user ? `notificationInbox_${user.id}` : 'notificationInbox';
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      setNotifications(raw ? JSON.parse(raw) : []);
+    } catch {
+      setNotifications([]);
+    }
+  }, [storageKey]);
 
   const addNotification = useCallback(({ type, title, message }) => {
     const entry = {
@@ -36,33 +32,40 @@ export function NotificationCenterProvider({ children }) {
     };
 
     setNotifications(prev => {
-      // Prepend new entry; trim to max cap
       const updated = [entry, ...prev].slice(0, MAX_NOTIFICATIONS);
-      saveToStorage(updated);
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(updated));
+      } catch {}
       return updated;
     });
-  }, []);
+  }, [storageKey]);
 
   const markAsRead = useCallback((id) => {
     setNotifications(prev => {
       const updated = prev.map(n => n.id === id ? { ...n, isRead: true } : n);
-      saveToStorage(updated);
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(updated));
+      } catch {}
       return updated;
     });
-  }, []);
+  }, [storageKey]);
 
   const markAllAsRead = useCallback(() => {
     setNotifications(prev => {
       const updated = prev.map(n => ({ ...n, isRead: true }));
-      saveToStorage(updated);
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(updated));
+      } catch {}
       return updated;
     });
-  }, []);
+  }, [storageKey]);
 
   const clearAll = useCallback(() => {
     setNotifications([]);
-    localStorage.removeItem(STORAGE_KEY);
-  }, []);
+    try {
+      localStorage.removeItem(storageKey);
+    } catch {}
+  }, [storageKey]);
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
 

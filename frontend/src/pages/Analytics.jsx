@@ -9,6 +9,7 @@ import api from '../services/api';
 import EmptyState from '../components/EmptyState';
 import { useToast } from '../contexts/ToastContext';
 import LoadingScreen from '../components/LoadingScreen';
+import SafeChartContainer from '../components/charts/SafeChartContainer';
 
 
 export default function Analytics() {
@@ -134,7 +135,7 @@ export default function Analytics() {
               <span className="text-xs text-muted ml-auto">Last 6 months</span>
             </div>
             {monthly.length > 0 ? (
-              <div className="h-[280px]">
+              <SafeChartContainer height={280}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={monthly} barCategoryGap="30%" margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
@@ -150,7 +151,7 @@ export default function Analytics() {
                     <Bar dataKey="expense" fill="#EF4444" radius={[6, 6, 0, 0]} maxBarSize={52} />
                   </BarChart>
                 </ResponsiveContainer>
-              </div>
+              </SafeChartContainer>
             ) : <EmptyState variant="simple" icon={BarChart2} title="No Data Available" description="Insufficient data to render chart." />}
 
             {/* Legend */}
@@ -174,7 +175,7 @@ export default function Analytics() {
               </div>
               {catTrends.months.length > 0 && catTrends.categories.length > 0 ? (
                 <div className="flex flex-col flex-1">
-                  <div className="h-[260px]">
+                  <SafeChartContainer height={260}>
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={catTrends.months} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                         <defs>
@@ -201,7 +202,7 @@ export default function Analytics() {
                         ))}
                       </AreaChart>
                     </ResponsiveContainer>
-                  </div>
+                  </SafeChartContainer>
                   <div className="flex flex-wrap gap-4 mt-4 justify-center">
                     {catTrends.categories.map(({ name, color }) => (
                       <div key={name} className="flex items-center gap-2 text-sm text-muted">
