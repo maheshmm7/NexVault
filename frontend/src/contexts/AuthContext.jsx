@@ -11,14 +11,20 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const initAuth = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setLoading(false);
+        return;
+      }
       try {
         const response = await api.get('/users/me');
         setUser(response.data);
       } catch (error) {
-        // Safe check: 401 means no active session cookie, which is normal for unauth users
         if (error.response && error.response.status !== 401) {
           console.error("Auth initialization failed", error);
         }
+        // If token is invalid or expired, clean it up
+        localStorage.removeItem('token');
       } finally {
         setLoading(false);
       }
@@ -33,11 +39,15 @@ export const AuthProvider = ({ children }) => {
       formData.append('username', email); // OAuth2 expects username
       formData.append('password', password);
 
-      await api.post('/auth/login', formData, {
+      const response = await api.post('/auth/login', formData, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
       });
       
-      // Cookie is set automatically in HTTPOnly storage by browser
+      const token = response.data.access_token;
+      if (token) {
+        localStorage.setItem('token', token);
+      }
+      
       const userResponse = await api.get('/users/me');
       setUser(userResponse.data);
       await triggerSync(); // Immediately sync user settings upon login!
@@ -74,6 +84,7 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error("Session termination failed on server", error);
     } finally {
+      localStorage.removeItem('token');
       setUser(null);
     }
   };
