@@ -7,6 +7,24 @@ import { BRANDING } from '../config/branding';
 import { fadeInUp, staggeredContainer } from '../config/motion';
 import Logo from '../components/Logo';
 
+const extractErrorMessage = (err) => {
+  const data = err.response?.data;
+  if (!data) return 'Something went wrong';
+  
+  if (data.detail) {
+    if (Array.isArray(data.detail)) {
+      return data.detail.map(e => {
+        const field = e.loc ? e.loc[e.loc.length - 1] : '';
+        const fieldName = field ? field.replace('_', ' ').toUpperCase() : '';
+        return `${fieldName ? fieldName + ': ' : ''}${e.msg}`;
+      }).join(', ');
+    }
+    return data.detail;
+  }
+  
+  return data.message || 'Something went wrong';
+};
+
 export default function Signup() {
   const [formData, setFormData] = useState({
     full_name: '',
@@ -42,7 +60,7 @@ export default function Signup() {
       await signup(formData.email, formData.password, formData.full_name);
       navigate('/dashboard');
     } catch (err) {
-      setError(err.response?.data?.detail || err.response?.data?.message || 'Something went wrong');
+      setError(extractErrorMessage(err));
     }
   };
 

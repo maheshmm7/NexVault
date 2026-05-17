@@ -27,29 +27,40 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = async (email, password) => {
-    const formData = new URLSearchParams();
-    formData.append('username', email); // OAuth2 expects username
-    formData.append('password', password);
+    setLoading(true);
+    try {
+      const formData = new URLSearchParams();
+      formData.append('username', email); // OAuth2 expects username
+      formData.append('password', password);
 
-    await api.post('/auth/login', formData, {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-    });
-    
-    // Cookie is set automatically in HTTPOnly storage by browser
-    const userResponse = await api.get('/users/me');
-    setUser(userResponse.data);
-    await triggerSync(); // Immediately sync user settings upon login!
+      await api.post('/auth/login', formData, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      });
+      
+      // Cookie is set automatically in HTTPOnly storage by browser
+      const userResponse = await api.get('/users/me');
+      setUser(userResponse.data);
+      await triggerSync(); // Immediately sync user settings upon login!
+    } finally {
+      setLoading(false);
+    }
   };
 
   const signup = async (email, password, fullName) => {
-    await api.post('/users/signup', {
-      email,
-      password,
-      full_name: fullName,
-      display_name: fullName,
-      avatar_url: null
-    });
-    await login(email, password);
+    setLoading(true);
+    try {
+      await api.post('/users/signup', {
+        email,
+        password,
+        full_name: fullName,
+        display_name: fullName,
+        avatar_url: null
+      });
+      await login(email, password);
+    } catch (err) {
+      setLoading(false);
+      throw err;
+    }
   };
 
   const updateProfile = async (data) => {
