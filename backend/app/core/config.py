@@ -16,6 +16,14 @@ class Settings(BaseSettings):
     # CORS Configuration - comma separated string or JSON list
     BACKEND_CORS_ORIGINS: Union[str, List[str]] = ["http://localhost:5173", "http://localhost:3000"]
 
+    def __init__(self, **values):
+        super().__init__(**values)
+        # Automatic runtime default adjustments for production PostgreSQL envs
+        if "postgresql" in self.DATABASE_URL or "postgres" in self.DATABASE_URL:
+            # Force COOKIE_SECURE default to True for HTTPS production environments
+            if "COOKIE_SECURE" not in values:
+                self.COOKIE_SECURE = True
+
     @property
     def cors_origins(self) -> List[str]:
         if isinstance(self.BACKEND_CORS_ORIGINS, str):

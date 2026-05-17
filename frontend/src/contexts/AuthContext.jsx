@@ -42,7 +42,13 @@ export const AuthProvider = ({ children }) => {
   };
 
   const signup = async (email, password, fullName) => {
-    await api.post('/users/signup', { email, password, full_name: fullName });
+    await api.post('/users/signup', {
+      email,
+      password,
+      full_name: fullName,
+      display_name: fullName,
+      avatar_url: null
+    });
     await login(email, password);
   };
 

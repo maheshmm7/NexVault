@@ -42,7 +42,7 @@ export default function Signup() {
       await signup(formData.email, formData.password, formData.full_name);
       navigate('/dashboard');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to create account');
+      setError(err.response?.data?.detail || err.response?.data?.message || 'Something went wrong');
     }
   };
 
