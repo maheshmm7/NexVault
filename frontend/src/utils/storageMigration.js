@@ -8,7 +8,7 @@ import { BRANDING } from '../config/branding';
 export const migrateStorage = () => {
   try {
     // ─── 1. Aggressive Token & Session Credential Purge ─────────────────────
-    const forbiddenAuthKeys = ['token', 'access_token', 'jwt', 'authToken', 'bearer'];
+    const forbiddenAuthKeys = ['access_token', 'jwt', 'authToken', 'bearer'];
     
     // Clear precise keys from localStorage
     forbiddenAuthKeys.forEach(k => {
@@ -35,8 +35,8 @@ export const migrateStorage = () => {
           lowerKey.includes('auth') || 
           lowerKey.includes('bearer')
         ) {
-          // Keep the in-session scanner tracker (e.g. nexvault_scan_token) since it is just a scan control boolean
-          if (!k.includes('_scan_token_')) {
+          // Keep the primary auth token and scan tokens
+          if (k !== 'token' && !k.includes('_scan_token_')) {
             localStorage.removeItem(k);
           }
         }
@@ -55,8 +55,8 @@ export const migrateStorage = () => {
           lowerKey.includes('auth') || 
           lowerKey.includes('bearer')
         ) {
-          // Keep the in-session scanner tracker (e.g. nexvault_scan_token) since it is just a scan control boolean
-          if (!k.includes('_scan_token_')) {
+          // Keep the primary auth token and scan tokens
+          if (k !== 'token' && !k.includes('_scan_token_')) {
             sessionStorage.removeItem(k);
           }
         }

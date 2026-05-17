@@ -41,6 +41,8 @@ def get_dashboard_summary(db: Session, user_id: str) -> dict:
 
     stats_dict = {t: float(amount) for t, amount in monthly_stats}
 
+    is_demo_active = any(getattr(src, "is_demo", False) for src in sources)
+
     return {
         "total_balance": total_balance,
         "credit_used": credit_used,
@@ -48,6 +50,7 @@ def get_dashboard_summary(db: Session, user_id: str) -> dict:
         "cash_balance": cash_balance,
         "monthly_income": stats_dict.get("income", 0.0),
         "monthly_expense": stats_dict.get("expense", 0.0),
+        "is_demo_active": is_demo_active,
     }
 
 

@@ -32,6 +32,7 @@ class CouponUpdate(BaseModel):
 class CouponResponse(CouponBase):
     id: str
     user_id: str
+    is_demo: bool = False
     created_at: datetime
     updated_at: Optional[datetime] = None
 

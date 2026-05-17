@@ -17,6 +17,9 @@ def get_coupons(status: str = None, db: Session = Depends(deps.get_db), current_
 
 @router.post("/", response_model=CouponResponse)
 def create_coupon(coupon_in: CouponCreate, db: Session = Depends(deps.get_db), current_user: User = Depends(deps.get_current_user)):
+    from app.services.demo_service import cleanup_demo_data_if_needed
+    cleanup_demo_data_if_needed(db, current_user.id)
+
     new_coupon = Coupon(**coupon_in.model_dump(), user_id=current_user.id)
     db.add(new_coupon)
     db.commit()

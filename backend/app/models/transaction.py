@@ -17,6 +17,7 @@ class Transaction(Base):
     timestamp = Column(DateTime(timezone=True), nullable=False, default=func.now())
     is_recurring = Column(Boolean, default=False)
     recurring_interval = Column(String, nullable=True)  # 'weekly', 'monthly', 'yearly', 'custom'
+    is_demo = Column(Boolean, default=False, nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

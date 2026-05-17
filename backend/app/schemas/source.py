@@ -59,6 +59,7 @@ class PaymentSourceUpdate(BaseModel):
 class PaymentSourceResponse(PaymentSourceBase):
     id: str
     user_id: str
+    is_demo: bool = False
     created_at: datetime
     updated_at: Optional[datetime] = None
 

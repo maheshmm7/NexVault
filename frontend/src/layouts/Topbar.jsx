@@ -154,7 +154,7 @@ export default function Topbar({ onMenuClick }) {
         amount: parseFloat(formData.amount),
         type: formData.type,
         notes: formData.notes,
-        timestamp: dayjs().format('YYYY-MM-DDTHH:mm:ss'),
+        timestamp: new Date().toISOString(),
         is_recurring: false,
       });
 

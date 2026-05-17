@@ -13,5 +13,7 @@ class User(Base):
     avatar_url = Column(String, nullable=True)
     hashed_password = Column(String, nullable=False)
     settings_json = Column(Text, nullable=True)   # JSON blob for user preferences
+    reset_token_hash = Column(String, nullable=True)
+    reset_token_expires_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

@@ -127,7 +127,7 @@ def test_category_user_isolation():
     token2 = get_token(USER2_EMAIL)
     r = client.get("/api/v1/categories/", headers=auth_headers(token2))
     assert r.status_code == 200
-    assert len(r.json()) == 0  # User2 has no categories
+    assert len(r.json()) == 8  # User2 has the 8 default seeded categories
 
 
 # ══════════════════════════════════════════════════════════════════

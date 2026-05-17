@@ -125,6 +125,14 @@ export default function Settings() {
     const [tempCouponPrefs,    setTempCouponPrefs]    = useState(couponPreferences);
     const [tempDateTimePrefs,  setTempDateTimePrefs]  = useState(dateTimePreferences);
 
+    useEffect(() => {
+        setTempCurrency(currency);
+        setTempTheme(theme);
+        setTempNotifications(notifications);
+        setTempCouponPrefs(couponPreferences);
+        setTempDateTimePrefs(dateTimePreferences);
+    }, [currency, theme, notifications, couponPreferences, dateTimePreferences]);
+
     // ── Handlers ────────────────────────────────────────────────────────────────
     const handleSaveProfile = async () => {
         if (newPassword && newPassword.length < 6) {

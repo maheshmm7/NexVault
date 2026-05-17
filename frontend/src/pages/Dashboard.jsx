@@ -211,7 +211,15 @@ export default function Dashboard() {
     <div className="space-y-5">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div>
-          <h1 className="text-3xl font-bold text-main tracking-tight">Overview</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-main tracking-tight">Overview</h1>
+            {summary.is_demo_active && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.08)] select-none animate-pulse">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                Demo Mode Active
+              </span>
+            )}
+          </div>
           <p className="text-muted mt-1.5 text-sm font-medium">Your financial summary for this month.</p>
         </div>
         <div className="flex items-center gap-3 bg-white/[0.03] p-1.5 rounded-2xl border border-white/5">
@@ -237,8 +245,8 @@ export default function Dashboard() {
           className="mt-6"
           icon={Wallet}
           title={`Welcome to ${BRANDING.NAME}!`}
-          description={`Your dashboard is empty. Load sample data to explore how everything works, or start adding your accounts and transactions.`}
-          actionText="Load Sample Data"
+          description={`Your dashboard is empty. Explore the demo dashboard to see how everything works, or start adding your accounts and transactions.`}
+          actionText="Explore Demo Dashboard"
           onAction={handleSeedDemoData}
         />
 

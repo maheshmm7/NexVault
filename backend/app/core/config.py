@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     COOKIE_SECURE: bool = False  # Set to True in production (HTTPS)
     COOKIE_SAMESITE: str = "lax"  # 'lax', 'strict', or 'none'
     
+    # Transactional Email & Frontend Integrations
+    RESEND_API_KEY: str = ""
+    FRONTEND_URL: str = "http://localhost:5173"
+    
     # CORS Configuration - comma separated string or JSON list
     BACKEND_CORS_ORIGINS: Union[str, List[str]] = ["http://localhost:5173", "http://localhost:3000"]
 

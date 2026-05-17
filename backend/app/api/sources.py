@@ -19,6 +19,8 @@ def create_source(
     db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_user)
 ):
+    from app.services.demo_service import cleanup_demo_data_if_needed
+    cleanup_demo_data_if_needed(db, current_user.id)
 
     source_data = source_in.model_dump()
 

@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, ForeignKey, Text
+from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Boolean
 from sqlalchemy.sql import func
 from app.db.database import Base
 
@@ -17,6 +17,7 @@ class Coupon(Base):
     expiry_date = Column(DateTime(timezone=True), nullable=True)
     status = Column(String, default="active")  # 'active', 'used', 'expired'
     notes = Column(Text, nullable=True)
+    is_demo = Column(Boolean, default=False, nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

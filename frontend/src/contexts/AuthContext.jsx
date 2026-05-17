@@ -19,18 +19,23 @@ export const AuthProvider = ({ children }) => {
       try {
         const response = await api.get('/users/me');
         setUser(response.data);
+        // Ensure settings/profile hydration completes fully before loading is set to false
+        await triggerSync();
       } catch (error) {
-        if (error.response && error.response.status !== 401) {
-          console.error("Auth initialization failed", error);
+        const isAuthError = error.response && (error.response.status === 401 || error.response.status === 403);
+        if (isAuthError) {
+          localStorage.removeItem('token');
+          setUser(null);
+        } else {
+          // Keep the token and log for debugging if it is a network drop or server cold start
+          console.warn("Auth initialization temporary connection failure (preserving local token):", error);
         }
-        // If token is invalid or expired, clean it up
-        localStorage.removeItem('token');
       } finally {
         setLoading(false);
       }
     };
     initAuth();
-  }, []);
+  }, [triggerSync]);
 
   const login = async (email, password) => {
     setLoading(true);

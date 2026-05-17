@@ -3,7 +3,7 @@ from fastapi import HTTPException
 from app.models.transaction import Transaction
 from app.models.source import PaymentSource
 from app.schemas.transaction import TransactionCreate, TransactionUpdate
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 
@@ -30,6 +30,9 @@ def _apply_balance_delta(source: PaymentSource, tx_type: str, amount: Decimal, s
 
 
 def create_transaction(db: Session, transaction_in: TransactionCreate, user_id: str) -> Transaction:
+    from app.services.demo_service import cleanup_demo_data_if_needed
+    cleanup_demo_data_if_needed(db, user_id)
+
     # 1. Fetch the payment source — enforces user isolation
     source = db.query(PaymentSource).filter(
         PaymentSource.id == transaction_in.source_id,
@@ -44,7 +47,7 @@ def create_transaction(db: Session, transaction_in: TransactionCreate, user_id: 
 
     # 3. Build and persist the transaction
     tx_data = transaction_in.model_dump()
-    tx_data["timestamp"] = tx_data.get("timestamp") or datetime.now()
+    tx_data["timestamp"] = tx_data.get("timestamp") or datetime.now(timezone.utc)
 
     new_tx = Transaction(**tx_data, user_id=user_id)
     db.add(new_tx)

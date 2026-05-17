@@ -41,3 +41,12 @@ class UserSettings(BaseModel):
 
     class Config:
         extra = 'allow'  # forward-compat: accept unknown keys silently
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str

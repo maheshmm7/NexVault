@@ -34,6 +34,7 @@ class TransactionResponse(TransactionBase):
     id: str
     user_id: str
     timestamp: datetime
+    is_demo: bool = False
     created_at: datetime
     updated_at: Optional[datetime] = None
 

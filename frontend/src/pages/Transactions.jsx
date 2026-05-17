@@ -132,24 +132,61 @@ export default function Transactions() {
 
   const openEdit = (tx) => {
     setEditingId(tx.id);
-    setManualTime('');
     setShowClock(false);
     setCustomCategory('');
+
+    let localDateStr = getTodayDate();
+    let localTimeStr = '';
+
+    if (tx.timestamp) {
+      const localDate = new Date(tx.timestamp);
+      const year = localDate.getFullYear();
+      const month = String(localDate.getMonth() + 1).padStart(2, '0');
+      const day = String(localDate.getDate()).padStart(2, '0');
+      localDateStr = `${year}-${month}-${day}`;
+
+      let hours = localDate.getHours();
+      const minutes = String(localDate.getMinutes()).padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      hours = hours ? hours : 12;
+      localTimeStr = `${String(hours).padStart(2, '0')}:${minutes} ${ampm}`;
+    }
+
+    setManualTime(localTimeStr);
     setFormData({
       amount: parseFloat(tx.amount).toString(),
       type: tx.type,
       source_id: tx.source_id,
       category_id: tx.category_id,
       notes: tx.notes || '',
-      timestamp: tx.timestamp ? tx.timestamp.split('T')[0] : getTodayDate(),
+      timestamp: localDateStr,
     });
     setIsModalOpen(true);
   };
 
+  const handleToggleClock = () => {
+    if (!showClock && !manualTime) {
+      const now = new Date();
+      let hours = now.getHours();
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      hours = hours ? hours : 12;
+      setManualTime(`${String(hours).padStart(2, '0')}:${minutes} ${ampm}`);
+    }
+    setShowClock(!showClock);
+  };
+
   const buildTimestamp = (dateStr, time12h) => {
-    if (isToday(dateStr) && !time12h) return getCurrentLocalTimestamp();
+    if (isToday(dateStr) && !time12h) {
+      return new Date().toISOString();
+    }
     const parsedTime = convertTo24Hour(time12h);
-    return `${dateStr}T${parsedTime}:00`;
+    const [hours, minutes] = parsedTime.split(':').map(Number);
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const localDate = new Date(year, month - 1, day, hours, minutes, 0);
+    return localDate.toISOString();
   };
 
   const handleSubmit = async (e) => {
@@ -610,7 +647,7 @@ export default function Transactions() {
                 </label>
                 <button
                   type="button"
-                  onClick={() => setShowClock(!showClock)}
+                  onClick={handleToggleClock}
                   className="input-field h-12 flex items-center justify-between"
                 >
                   <span>{manualTime || (isToday(formData.timestamp) ? 'Current time (auto)' : 'Select time')}</span>

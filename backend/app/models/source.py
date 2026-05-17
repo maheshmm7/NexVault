@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, Numeric, ForeignKey
+from sqlalchemy import Column, String, DateTime, Numeric, ForeignKey, Boolean
 from sqlalchemy.sql import func
 from app.db.database import Base
 
@@ -14,6 +14,7 @@ class PaymentSource(Base):
     name = Column(String, nullable=False)
     type = Column(String, nullable=False)  # 'bank', 'credit_card', 'debit_card', 'wallet', 'cash'
     balance = Column(Numeric(precision=12, scale=2), default=0.00, nullable=False)
+    is_demo = Column(Boolean, default=False, nullable=False)
 
     # Credit card specific
     credit_limit = Column(Numeric(precision=12, scale=2), nullable=True)
