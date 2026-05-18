@@ -11,7 +11,7 @@ from app.core import security
 from app.core.config import settings
 from app.models.user import User
 from app.schemas.token import Token
-from app.schemas.user import ForgotPasswordRequest, ResetPasswordRequest
+from app.schemas.user import ForgotPasswordRequest, ResetPasswordRequest, RecoverAccountRequest, RegenerateRecoveryCodeRequest
 
 router = APIRouter()
 
@@ -137,8 +137,10 @@ def reset_password(
     payload: ResetPasswordRequest,
     db: Session = Depends(deps.get_db)
 ):
-    if len(payload.new_password) < 8:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 8 characters long")
+    try:
+        security.validate_password_strength(payload.new_password)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     # Hash the incoming token using SHA-256 to lookup the user
     token_hash = hashlib.sha256(payload.token.encode()).hexdigest()
@@ -169,3 +171,96 @@ def reset_password(
     db.commit()
 
     return {"message": "Password reset successfully. You can now log in with your new credentials."}
+
+
+@router.post("/recover-account")
+def recover_account(
+    payload: RecoverAccountRequest,
+    db: Session = Depends(deps.get_db)
+):
+    """
+    Beta-stage Account Recovery:
+    Validates a cryptographically strong NVX-XXXX-XXXX-XXXX recovery code.
+    If valid, resets the user password, invalidates old reset states,
+    regenerates a new recovery code, hashes it, and returns the new code.
+    
+    Abuse & Throttling readiness hooks:
+    - Future middleware rate-limiting decorator ready
+    - Attempt counting checks can be bound to IP/email keys in Redis/DB
+    """
+    # ─── Throttling & Abuse Prevention Hook ──────────────────────────────
+    # TODO: Implement rate limiting middleware decorator here, e.g. @limiter.limit("5/minute")
+    
+    try:
+        security.validate_password_strength(payload.new_password)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        
+    user = db.query(User).filter(User.email == payload.email).first()
+    if not user or not user.recovery_code_hash:
+        # Prevent account enumeration: return general invalid error
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid email or recovery code")
+        
+    # Verify the timing-safe recovery code hash
+    if not security.verify_password(payload.recovery_code, user.recovery_code_hash):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid email or recovery code")
+        
+    # Valid recovery! Proceed to reset password and invalidate old credentials
+    user.hashed_password = security.get_password_hash(payload.new_password)
+    
+    # Invalidate forgot password reset tokens
+    user.reset_token_hash = None
+    user.reset_token_expires_at = None
+    
+    # Generate and swap in a brand new recovery code (Single-Use Invalidation)
+    from app.api.users import generate_recovery_code
+    new_recovery_code = generate_recovery_code()
+    user.recovery_code_hash = security.get_password_hash(new_recovery_code)
+    
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred during account recovery")
+        
+    return {
+        "message": "Account recovered successfully. Your password has been updated.",
+        "new_recovery_code": new_recovery_code
+    }
+
+
+@router.post("/regenerate-recovery-code")
+def regenerate_recovery_code(
+    payload: RegenerateRecoveryCodeRequest,
+    current_user: User = Depends(deps.get_current_user),
+    db: Session = Depends(deps.get_db)
+):
+    """
+    Authenticated Regeneration of the Recovery Code.
+    Verifies the user's current password, regenerates a cryptographically strong code,
+    hashes it, stores it, immediately invalidates the old hash, and returns the new code once.
+    """
+    if not security.verify_password(payload.password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect password confirmation"
+        )
+        
+    from app.api.users import generate_recovery_code
+    new_recovery_code = generate_recovery_code()
+    
+    current_user.recovery_code_hash = security.get_password_hash(new_recovery_code)
+    
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred during recovery code regeneration"
+        )
+        
+    return {
+        "message": "Recovery code regenerated successfully.",
+        "new_recovery_code": new_recovery_code
+    }

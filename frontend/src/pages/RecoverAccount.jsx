@@ -1,46 +1,29 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { useAuth } from '../contexts/AuthContext';
-import { useToast } from '../contexts/ToastContext';
-import { ArrowLeft, CheckCircle2, Shield } from 'lucide-react';
+import { ArrowLeft, Shield, Eye, EyeOff } from 'lucide-react';
 import { BRANDING } from '../config/branding';
 import { fadeInUp, staggeredContainer } from '../config/motion';
 import Logo from '../components/Logo';
+import api from '../services/api';
 import PasswordFeedback from '../components/PasswordFeedback';
+import { useToast } from '../contexts/ToastContext';
 
-const extractErrorMessage = (err) => {
-  const data = err.response?.data;
-  if (!data) return 'Something went wrong';
-  
-  if (data.detail) {
-    if (Array.isArray(data.detail)) {
-      return data.detail.map(e => {
-        const field = e.loc ? e.loc[e.loc.length - 1] : '';
-        const fieldName = field ? field.replace('_', ' ').toUpperCase() : '';
-        return `${fieldName ? fieldName + ': ' : ''}${e.msg}`;
-      }).join(', ');
-    }
-    return data.detail;
-  }
-  
-  return data.message || 'Something went wrong';
-};
-
-export default function Signup() {
+export default function RecoverAccount() {
   const [formData, setFormData] = useState({
-    full_name: '',
     email: '',
-    password: '',
-    confirm_password: '',
+    recoveryCode: '',
+    newPassword: '',
+    confirmPassword: '',
   });
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
-  const [recoveryCode, setRecoveryCode] = useState('');
+  const [showRecoveryCode, setShowRecoveryCode] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [successCode, setSuccessCode] = useState('');
   const [isSavedChecked, setIsSavedChecked] = useState(false);
-  const { signup } = useAuth();
-  const { addToast } = useToast();
+  const [error, setError] = useState('');
   const navigate = useNavigate();
+  const { addToast } = useToast();
 
   // Scroll to top on mount
   useEffect(() => {
@@ -54,22 +37,32 @@ export default function Signup() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setLoading(true);
     setError('');
 
-    if (formData.password !== formData.confirm_password) {
+    if (formData.newPassword !== formData.confirmPassword) {
       setError('Passwords do not match');
+      setLoading(false);
       return;
     }
 
     try {
-      const res = await signup(formData.email, formData.password, formData.full_name);
-      if (res && res.recovery_code) {
-        setRecoveryCode(res.recovery_code);
+      const response = await api.post('/auth/recover-account', {
+        email: formData.email.trim(),
+        recovery_code: formData.recoveryCode.trim(),
+        new_password: formData.newPassword,
+      });
+
+      if (response.data && response.data.new_recovery_code) {
+        setSuccessCode(response.data.new_recovery_code);
       } else {
-        navigate('/dashboard');
+        addToast("Account recovered successfully! You can now log in.", "success");
+        navigate('/login');
       }
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(err.response?.data?.detail || err.response?.data?.message || 'Something went wrong');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -87,11 +80,11 @@ export default function Signup() {
           <Logo size={32} showText={true} textClass="text-2xl" />
         </Link>
         <Link 
-          to="/" 
+          to="/forgot-password" 
           className="text-sm font-bold text-muted hover:text-white transition-colors flex items-center gap-2 group"
         >
           <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-          Back to Home
+          Back to Forgot Password
         </Link>
       </header>
 
@@ -100,66 +93,28 @@ export default function Signup() {
           variants={staggeredContainer}
           initial="hidden"
           animate="visible"
-          className="w-full max-w-5xl flex flex-col lg:flex-row gap-16 items-center"
+          className="w-full max-w-md"
         >
-          {/* Visual Side (Desktop only) */}
-          <div className="hidden lg:block flex-1">
-            <motion.div variants={fadeInUp}>
-              <h2 className="text-4xl md:text-5xl font-bold mb-8 leading-tight">
-                Start your journey to <br />
-                <span className="text-primary text-cinematic-gradient">Financial Intelligence</span>
-              </h2>
-              <div className="space-y-6">
-                {[
-                  "Instant Analytics & AI Insights",
-                  "Bank-grade AES-256 Security Vault",
-                  "Seamless Multi-account Synchronization",
-                  "Automated Subscription Tracking"
-                ].map((text, i) => (
-                  <div key={i} className="flex items-center gap-4">
-                    <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
-                      <CheckCircle2 className="w-4 h-4 text-primary" />
-                    </div>
-                    <span className="text-muted font-medium text-lg">{text}</span>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-          </div>
-
           <motion.div 
             variants={fadeInUp}
-            className="w-full max-w-md glass-premium p-8 md:p-10 rounded-[32px] border border-white/10 shadow-[0_40px_100px_rgba(0,0,0,0.5)] bg-slate-900/40"
+            className="glass-premium p-8 md:p-10 rounded-[32px] border border-white/10 shadow-[0_40px_100px_rgba(0,0,0,0.5)] bg-slate-900/40"
           >
-            <div className="text-center mb-10">
-              <h1 className="text-3xl font-bold tracking-tight mb-3">Create Account</h1>
-              <p className="text-muted text-sm">Join {BRANDING.NAME} for free today</p>
+            <div className="text-center mb-8">
+              <h1 className="text-3xl font-bold tracking-tight mb-3">Recover Account</h1>
+              <p className="text-muted text-sm">Enter your recovery code and new credentials below</p>
             </div>
 
             {error && (
               <motion.div 
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
-                className="bg-danger/10 border border-danger/20 text-danger px-4 py-3 rounded-2xl mb-8 text-sm font-medium"
+                className="bg-danger/10 border border-danger/20 text-danger px-4 py-3 rounded-2xl mb-6 text-sm font-medium"
               >
                 {error}
               </motion.div>
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-muted mb-2 ml-1">Full Name</label>
-                <input
-                  type="text"
-                  name="full_name"
-                  value={formData.full_name}
-                  onChange={handleChange}
-                  className="w-full h-12 bg-white/5 border border-white/10 rounded-2xl px-5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder:text-white/20"
-                  placeholder="John Doe"
-                  required
-                />
-              </div>
-
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-muted mb-2 ml-1">Email Address</label>
                 <input
@@ -170,42 +125,71 @@ export default function Signup() {
                   className="w-full h-12 bg-white/5 border border-white/10 rounded-2xl px-5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder:text-white/20"
                   placeholder="name@example.com"
                   required
+                  disabled={loading}
                 />
               </div>
-              
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-muted mb-2 ml-1">Recovery Code</label>
+                <div className="relative">
+                  <input
+                    type={showRecoveryCode ? 'text' : 'password'}
+                    name="recoveryCode"
+                    value={formData.recoveryCode}
+                    onChange={handleChange}
+                    className="w-full h-12 bg-white/5 border border-white/10 rounded-2xl pl-5 pr-12 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder:text-white/20 font-mono tracking-wider uppercase"
+                    placeholder="NVX-XXXX-XXXX-XXXX"
+                    required
+                    disabled={loading}
+                    autoComplete="off"
+                    spellCheck={false}
+                    autoCapitalize="characters"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowRecoveryCode(!showRecoveryCode)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-muted hover:text-white transition-colors cursor-pointer"
+                  >
+                    {showRecoveryCode ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-muted mb-2 ml-1">Password</label>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-muted mb-2 ml-1">New Password</label>
                   <input
                     type={showPassword ? 'text' : 'password'}
-                    name="password"
-                    value={formData.password}
+                    name="newPassword"
+                    value={formData.newPassword}
                     onChange={handleChange}
                     className="w-full h-12 bg-white/5 border border-white/10 rounded-2xl px-5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder:text-white/20"
                     placeholder="••••••••"
                     required
+                    disabled={loading}
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-muted mb-2 ml-1">Confirm</label>
                   <input
                     type={showPassword ? 'text' : 'password'}
-                    name="confirm_password"
-                    value={formData.confirm_password}
+                    name="confirmPassword"
+                    value={formData.confirmPassword}
                     onChange={handleChange}
                     className="w-full h-12 bg-white/5 border border-white/10 rounded-2xl px-5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder:text-white/20"
                     placeholder="••••••••"
                     required
+                    disabled={loading}
                   />
                 </div>
               </div>
 
               <PasswordFeedback 
-                password={formData.password} 
-                confirmPassword={formData.confirm_password} 
+                password={formData.newPassword} 
+                confirmPassword={formData.confirmPassword} 
               />
 
-              <div className="flex items-center gap-2 ml-1 pb-4">
+              <div className="flex items-center gap-2 ml-1 pb-2">
                 <button 
                   type="button" 
                   onClick={() => setShowPassword(!showPassword)}
@@ -217,40 +201,45 @@ export default function Signup() {
 
               <button 
                 type="submit" 
-                className="w-full h-14 bg-primary text-white rounded-2xl font-bold text-lg hover:shadow-[0_0_30px_rgba(59,130,246,0.4)] hover:scale-[1.02] active:scale-[0.98] transition-all"
+                disabled={loading}
+                className="w-full h-14 bg-primary text-white rounded-2xl font-bold text-lg hover:shadow-[0_0_30px_rgba(59,130,246,0.4)] hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:scale-100 disabled:pointer-events-none flex items-center justify-center gap-2 cursor-pointer"
               >
-                Get Started
+                {loading ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Recovering Account...
+                  </>
+                ) : (
+                  'Recover Account'
+                )}
               </button>
             </form>
 
-            <div className="mt-10 text-center text-sm text-muted">
-              Already have an account? <Link to="/login" className="text-primary font-bold hover:underline">Sign In</Link>
+            <div className="mt-8 text-center text-sm text-muted">
+              Remember your credentials? <Link to="/login" className="text-primary font-bold hover:underline">Sign In</Link>
             </div>
           </motion.div>
         </motion.div>
       </main>
 
-      {/* Subtle Bottom Glow */}
-      <div className="absolute -bottom-40 left-1/2 -translate-x-1/2 w-full max-w-4xl h-80 bg-primary/10 blur-[120px] rounded-full pointer-events-none" />
-
-      {/* Save Recovery Code Modal */}
-      {recoveryCode && (
+      {/* SUCCESS MODAL FOR THE NEW REGENERATED RECOVERY CODE */}
+      {successCode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in text-center">
           <div className="w-full max-w-lg glass-premium p-8 md:p-10 rounded-[32px] border border-white/10 shadow-[0_40px_100px_rgba(0,0,0,0.8)] bg-slate-900/60 relative">
             <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-6 text-primary border border-primary/20">
               <Shield className="w-8 h-8 animate-pulse" />
             </div>
             
-            <h2 className="text-2xl font-bold tracking-tight text-main mb-3">Save Your Recovery Code</h2>
+            <h2 className="text-2xl font-bold tracking-tight text-main mb-3">New Recovery Code Generated</h2>
             
             <p className="text-xs text-muted leading-relaxed max-w-md mx-auto mb-6">
-              This recovery code can be used to reset your password if you lose access to email recovery during beta testing. Store it safely and never share it.
+              Your account has been successfully recovered. A new recovery code has been generated. The old recovery code is now invalid. Please save this code securely.
             </p>
             
             {/* Monospace Code Display Box */}
             <div className="bg-black/40 border border-white/10 rounded-2xl p-5 mb-6 relative group overflow-hidden">
               <span className="font-mono text-xl md:text-2xl font-bold text-primary tracking-widest block select-all">
-                {recoveryCode}
+                {successCode}
               </span>
             </div>
             
@@ -259,8 +248,8 @@ export default function Signup() {
               <button
                 type="button"
                 onClick={() => {
-                  navigator.clipboard.writeText(recoveryCode);
-                  addToast("Recovery code copied securely", "success");
+                  navigator.clipboard.writeText(successCode);
+                  addToast("New recovery code copied securely", "success");
                 }}
                 className="px-4 py-3 rounded-xl text-xs font-bold border border-white/10 bg-white/[0.02] hover:bg-white/5 transition-all text-main cursor-pointer"
               >
@@ -270,7 +259,7 @@ export default function Signup() {
                 type="button"
                 onClick={() => {
                   const element = document.createElement("a");
-                  const fileContent = `NEXVAULT RECOVERY CODE\n======================\n\nCode: ${recoveryCode}\n\nWARNING:\nStore this recovery code securely.\nAnyone with access to this code can reset your NEXVAULT account password.`;
+                  const fileContent = `NEXVAULT RECOVERY CODE\n======================\n\nCode: ${successCode}\n\nWARNING:\nStore this recovery code securely.\nAnyone with access to this code can reset your NEXVAULT account password.`;
                   const file = new Blob([fileContent], {type: 'text/plain'});
                   element.href = URL.createObjectURL(file);
                   element.download = "nexvault-recovery-code.txt";
@@ -289,28 +278,31 @@ export default function Signup() {
             <div className="flex items-start gap-3 text-left p-4 rounded-xl border border-white/5 bg-white/[0.01] mb-6">
               <input
                 type="checkbox"
-                id="confirmSaved"
+                id="confirmSuccessSaved"
                 checked={isSavedChecked}
                 onChange={(e) => setIsSavedChecked(e.target.checked)}
                 className="w-4 h-4 mt-0.5 rounded border-white/10 bg-black/40 text-primary focus:ring-primary/20 accent-primary cursor-pointer animate-fade-in"
               />
-              <label htmlFor="confirmSaved" className="text-xs text-muted leading-relaxed cursor-pointer select-none">
-                I have securely saved my recovery code. I understand it cannot be recovered or shown again.
+              <label htmlFor="confirmSuccessSaved" className="text-xs text-muted leading-relaxed cursor-pointer select-none">
+                I have securely saved my new recovery code. I understand it cannot be recovered or shown again.
               </label>
             </div>
             
-            {/* Continue Button */}
+            {/* Continue to Login Button */}
             <button
               type="button"
               disabled={!isSavedChecked}
-              onClick={() => navigate('/dashboard')}
+              onClick={() => navigate('/login')}
               className="w-full h-14 bg-primary text-white rounded-2xl font-bold text-lg hover:shadow-[0_0_30px_rgba(59,130,246,0.4)] hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-40 disabled:scale-100 disabled:pointer-events-none cursor-pointer"
             >
-              Continue to Dashboard
+              Return to Sign In
             </button>
           </div>
         </div>
       )}
+
+      {/* Subtle Bottom Glow */}
+      <div className="absolute -bottom-40 left-1/2 -translate-x-1/2 w-full max-w-4xl h-80 bg-primary/10 blur-[120px] rounded-full pointer-events-none" />
     </div>
   );
 }

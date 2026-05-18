@@ -15,5 +15,6 @@ class User(Base):
     settings_json = Column(Text, nullable=True)   # JSON blob for user preferences
     reset_token_hash = Column(String, nullable=True)
     reset_token_expires_at = Column(DateTime(timezone=True), nullable=True)
+    recovery_code_hash = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

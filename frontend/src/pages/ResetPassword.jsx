@@ -5,6 +5,7 @@ import { ArrowLeft, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import { BRANDING } from '../config/branding';
 import { fadeInUp, staggeredContainer } from '../config/motion';
 import Logo from '../components/Logo';
+import PasswordFeedback from '../components/PasswordFeedback';
 import api from '../services/api';
 
 export default function ResetPassword() {
@@ -36,11 +37,6 @@ export default function ResetPassword() {
 
     if (formData.password !== formData.confirm_password) {
       setError('Passwords do not match');
-      return;
-    }
-
-    if (formData.password.length < 8) {
-      setError('Password must be at least 8 characters long');
       return;
     }
 
@@ -161,6 +157,11 @@ export default function ResetPassword() {
                       disabled={loading}
                     />
                   </div>
+
+                  <PasswordFeedback 
+                    password={formData.password} 
+                    confirmPassword={formData.confirm_password} 
+                  />
 
                   <button 
                     type="submit" 

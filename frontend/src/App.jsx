@@ -11,6 +11,7 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
+import RecoverAccount from './pages/RecoverAccount';
 import Dashboard from './pages/Dashboard';
 import Accounts from './pages/Accounts';
 import Vault from './pages/Vault';
@@ -36,6 +37,7 @@ function App() {
                 <Route path="/signup" element={<Signup />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password/:token" element={<ResetPassword />} />
+                <Route path="/recover-account" element={<RecoverAccount />} />
 
                 {/* Protected Routes */}
                 <Route element={<ProtectedRoute />}>

@@ -1,15 +1,21 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from app.api import deps
-from app.core.security import get_password_hash, verify_password
+from app.core.security import get_password_hash, verify_password, validate_password_strength
 from app.models.user import User
-from app.schemas.user import UserCreate, UserResponse, UserUpdate, UserSettings
+from app.schemas.user import UserCreate, UserResponse, UserUpdate, UserSettings, DeleteAccountRequest, UserSignupResponse
 from app.models.source import PaymentSource
 from app.models.category import Category
 from app.models.transaction import Transaction
 from app.models.coupon import Coupon
 from datetime import datetime, timedelta
 import json
+import io
+import csv
+import zipfile
+import secrets
+import string
 
 router = APIRouter()
 
@@ -25,16 +31,30 @@ DEFAULT_CATEGORIES = [
 ]
 
 
-@router.post("/signup", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+def generate_recovery_code() -> str:
+    def group(length=4):
+        chars = string.ascii_uppercase + string.digits
+        return "".join(secrets.choice(chars) for _ in range(length))
+    return f"NVX-{group()}-{group()}-{group()}"
+
+
+@router.post("/signup", response_model=UserSignupResponse, status_code=status.HTTP_201_CREATED)
 def create_user(user_in: UserCreate, db: Session = Depends(deps.get_db)):
     user = db.query(User).filter(User.email == user_in.email).first()
     if user:
         raise HTTPException(status_code=400, detail="An account with this email already exists.")
 
+    try:
+        validate_password_strength(user_in.password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    recovery_code = generate_recovery_code()
     user_obj = User(
         email=user_in.email,
         full_name=user_in.full_name,
         hashed_password=get_password_hash(user_in.password),
+        recovery_code_hash=get_password_hash(recovery_code),
     )
     db.add(user_obj)
     db.flush()  # get user_obj.id
@@ -45,6 +65,9 @@ def create_user(user_in: UserCreate, db: Session = Depends(deps.get_db)):
 
     db.commit()
     db.refresh(user_obj)
+    
+    # Attach dynamic field for single-use serialization
+    user_obj.recovery_code = recovery_code
     return user_obj
 
 
@@ -77,6 +100,10 @@ def update_user_me(
             raise HTTPException(status_code=400, detail="Current password is required to set a new password.")
         if not verify_password(user_in.current_password, current_user.hashed_password):
             raise HTTPException(status_code=400, detail="Incorrect current password.")
+        try:
+            validate_password_strength(user_in.new_password)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         current_user.hashed_password = get_password_hash(user_in.new_password)
 
     db.commit()
@@ -249,3 +276,264 @@ def update_user_settings(
     current_user.settings_json = json.dumps(existing)
     db.commit()
     return existing
+
+
+@router.delete("/me", status_code=status.HTTP_200_OK)
+def delete_user_account(
+    req: DeleteAccountRequest,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+):
+    """
+    Permanently deletes the currently authenticated user's account and all linked records.
+    Verifies current password before proceeding.
+    """
+    if not verify_password(req.password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect password. Account deletion aborted."
+        )
+
+    try:
+        # Cascade-delete in priority order to prevent foreign key constraint issues
+        db.query(Transaction).filter(Transaction.user_id == current_user.id).delete()
+        db.query(PaymentSource).filter(PaymentSource.user_id == current_user.id).delete()
+        db.query(Category).filter(Category.user_id == current_user.id).delete()
+        db.query(Coupon).filter(Coupon.user_id == current_user.id).delete()
+        db.delete(current_user)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete account due to a database error: {str(e)}"
+        )
+
+    return {"message": "Account successfully deleted."}
+
+
+@router.post("/me/clear-data", status_code=status.HTTP_200_OK)
+def clear_financial_data(
+    req: DeleteAccountRequest,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+):
+    """
+    Clears all financial data (transactions, payment sources, coupons) for the current user.
+    Preserves account, settings, and custom categories.
+    """
+    if not verify_password(req.password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect password. Data clearing aborted."
+        )
+
+    try:
+        # Delete only transaction, payment source, and coupon data
+        db.query(Transaction).filter(Transaction.user_id == current_user.id).delete()
+        db.query(PaymentSource).filter(PaymentSource.user_id == current_user.id).delete()
+        db.query(Coupon).filter(Coupon.user_id == current_user.id).delete()
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to clear financial data due to a database error: {str(e)}"
+        )
+
+    return {"message": "All financial data has been cleared."}
+
+
+@router.get("/me/export")
+def export_user_data(
+    format: str = "json",
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+):
+    """
+    Exports the current authenticated user's complete data in either JSON or ZIP-compressed CSV formats.
+    Safety: Never exposes passwords, password hashes, or security metadata.
+    """
+    # Fetch all user data
+    sources = db.query(PaymentSource).filter(PaymentSource.user_id == current_user.id).all()
+    categories = db.query(Category).filter(Category.user_id == current_user.id).all()
+    transactions = db.query(Transaction).filter(Transaction.user_id == current_user.id).all()
+    coupons = db.query(Coupon).filter(Coupon.user_id == current_user.id).all()
+
+    # Load settings JSON safely
+    settings_data = {}
+    if current_user.settings_json:
+        try:
+            settings_data = json.loads(current_user.settings_json)
+        except Exception:
+            pass
+
+    # Build safe user profile metadata
+    profile = {
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "display_name": current_user.display_name,
+        "avatar_url": current_user.avatar_url,
+        "created_at": current_user.created_at.isoformat() if current_user.created_at else None,
+    }
+
+    if format.lower() == "json":
+        # Package and sanitize data
+        export_data = {
+            "profile": profile,
+            "settings": settings_data,
+            "accounts": [
+                {
+                    "name": s.name,
+                    "type": s.type,
+                    "balance": float(s.balance),
+                    "credit_limit": float(s.credit_limit) if s.credit_limit is not None else None,
+                    "available_limit": float(s.available_limit) if s.available_limit is not None else None,
+                    "billing_date": s.billing_date,
+                    "due_date": s.due_date,
+                    "network": s.network,
+                    "account_number_last4": s.account_number_last4,
+                    "bank_name": s.bank_name,
+                    "account_subtype": s.account_subtype,
+                    "ifsc_code": s.ifsc_code,
+                    "upi_id": s.upi_id,
+                    "linked_bank_name": s.linked_bank_name,
+                    "created_at": s.created_at.isoformat() if s.created_at else None,
+                }
+                for s in sources
+            ],
+            "categories": [
+                {
+                    "name": c.name,
+                    "type": c.type,
+                    "color": c.color,
+                    "icon": c.icon,
+                }
+                for c in categories
+            ],
+            "transactions": [
+                {
+                    "amount": float(t.amount),
+                    "type": t.type,
+                    "notes": t.notes,
+                    "timestamp": t.timestamp.isoformat() if t.timestamp else None,
+                    "is_recurring": t.is_recurring,
+                    "recurring_interval": t.recurring_interval,
+                }
+                for t in transactions
+            ],
+            "coupons": [
+                {
+                    "name": cp.name,
+                    "code": cp.code,
+                    "discount": float(cp.discount),
+                    "expiry_date": cp.expiry_date,
+                    "is_used": cp.is_used,
+                    "created_at": cp.created_at.isoformat() if cp.created_at else None,
+                }
+                for cp in coupons
+            ]
+        }
+        
+        headers = {
+            "Content-Disposition": 'attachment; filename="nexvault-data-export.json"'
+        }
+        return JSONResponse(content=export_data, headers=headers)
+
+    elif format.lower() == "csv":
+        # Create CSV files inside an in-memory ZIP archive
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+            
+            # Helper to write list of dicts to CSV string
+            def dicts_to_csv(data_list, headers):
+                output = io.StringIO()
+                writer = csv.writer(output)
+                writer.writerow(headers)
+                for item in data_list:
+                    writer.writerow([item.get(h) for h in headers])
+                return output.getvalue()
+
+            # 1. Profile CSV
+            profile_csv = dicts_to_csv([profile], ["email", "full_name", "display_name", "created_at"])
+            zip_file.writestr("profile.csv", profile_csv)
+
+            # 2. Accounts CSV
+            accounts_data = [
+                {
+                    "name": s.name,
+                    "type": s.type,
+                    "balance": float(s.balance),
+                    "credit_limit": float(s.credit_limit) if s.credit_limit is not None else "",
+                    "available_limit": float(s.available_limit) if s.available_limit is not None else "",
+                    "billing_date": s.billing_date or "",
+                    "due_date": s.due_date or "",
+                    "network": s.network or "",
+                    "account_number_last4": s.account_number_last4 or "",
+                    "bank_name": s.bank_name or "",
+                    "account_subtype": s.account_subtype or "",
+                    "upi_id": s.upi_id or "",
+                    "created_at": s.created_at.isoformat() if s.created_at else "",
+                }
+                for s in sources
+            ]
+            accounts_csv = dicts_to_csv(
+                accounts_data, 
+                ["name", "type", "balance", "credit_limit", "available_limit", "billing_date", "due_date", "network", "account_number_last4", "bank_name", "account_subtype", "upi_id", "created_at"]
+            )
+            zip_file.writestr("accounts.csv", accounts_csv)
+
+            # 3. Categories CSV
+            categories_data = [
+                {"name": c.name, "type": c.type, "color": c.color, "icon": c.icon}
+                for c in categories
+            ]
+            categories_csv = dicts_to_csv(categories_data, ["name", "type", "color", "icon"])
+            zip_file.writestr("categories.csv", categories_csv)
+
+            # 4. Transactions CSV
+            transactions_data = [
+                {
+                    "amount": float(t.amount),
+                    "type": t.type,
+                    "notes": t.notes or "",
+                    "timestamp": t.timestamp.isoformat() if t.timestamp else "",
+                    "is_recurring": t.is_recurring,
+                    "recurring_interval": t.recurring_interval or "",
+                }
+                for t in transactions
+            ]
+            transactions_csv = dicts_to_csv(transactions_data, ["amount", "type", "notes", "timestamp", "is_recurring", "recurring_interval"])
+            zip_file.writestr("transactions.csv", transactions_csv)
+
+            # 5. Coupons CSV
+            coupons_data = [
+                {
+                    "name": cp.name,
+                    "code": cp.code,
+                    "discount": float(cp.discount),
+                    "expiry_date": cp.expiry_date or "",
+                    "is_used": cp.is_used,
+                    "created_at": cp.created_at.isoformat() if cp.created_at else "",
+                }
+                for cp in coupons
+            ]
+            coupons_csv = dicts_to_csv(coupons_data, ["name", "code", "discount", "expiry_date", "is_used", "created_at"])
+            zip_file.writestr("coupons.csv", coupons_csv)
+
+        zip_buffer.seek(0)
+        
+        headers = {
+            "Content-Disposition": 'attachment; filename="nexvault-data-export.zip"'
+        }
+        return StreamingResponse(
+            io.BytesIO(zip_buffer.getvalue()), 
+            media_type="application/zip", 
+            headers=headers
+        )
+
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported export format. Supported formats are 'json' and 'csv'."
+        )

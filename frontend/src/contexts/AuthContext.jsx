@@ -64,7 +64,7 @@ export const AuthProvider = ({ children }) => {
   const signup = async (email, password, fullName) => {
     setLoading(true);
     try {
-      await api.post('/users/signup', {
+      const res = await api.post('/users/signup', {
         email,
         password,
         full_name: fullName,
@@ -72,6 +72,7 @@ export const AuthProvider = ({ children }) => {
         avatar_url: null
       });
       await login(email, password);
+      return res.data;
     } catch (err) {
       setLoading(false);
       throw err;

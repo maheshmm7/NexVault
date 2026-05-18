@@ -72,9 +72,18 @@ export default function ForgotPassword() {
                   <CheckCircle2 className="w-8 h-8" />
                 </div>
                 <h1 className="text-2xl font-bold tracking-tight mb-4">Check Your Email</h1>
-                <p className="text-muted text-sm leading-relaxed mb-8">
+                <p className="text-muted text-sm leading-relaxed mb-6">
                   If your email is registered in our secure database, you will receive a password reset link shortly.
                 </p>
+
+                <div className="p-4 rounded-2xl border border-white/5 bg-white/[0.02] text-center mb-6">
+                  <p className="text-xs text-muted leading-relaxed">
+                    Having trouble receiving reset emails?<br />
+                    NEXVAULT is currently in beta testing.<br />
+                    Please contact support for password recovery assistance.
+                  </p>
+                </div>
+
                 <Link 
                   to="/login" 
                   className="inline-flex items-center justify-center w-full h-14 bg-primary text-white rounded-2xl font-bold text-lg hover:shadow-[0_0_30px_rgba(59,130,246,0.4)] hover:scale-[1.02] active:scale-[0.98] transition-all"
@@ -129,8 +138,13 @@ export default function ForgotPassword() {
                   </button>
                 </form>
 
-                <div className="mt-10 text-center text-sm text-muted">
-                  Remember your credentials? <Link to="/login" className="text-primary font-bold hover:underline">Sign In</Link>
+                <div className="mt-10 text-center text-sm text-muted space-y-3">
+                  <div>
+                    Remember your credentials? <Link to="/login" className="text-primary font-bold hover:underline">Sign In</Link>
+                  </div>
+                  <div className="pt-2 border-t border-white/5">
+                    Lost email access? <Link to="/recover-account" className="text-primary font-bold hover:underline">Recover Using Recovery Code</Link>
+                  </div>
                 </div>
               </>
             )}

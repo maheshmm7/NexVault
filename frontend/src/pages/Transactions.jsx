@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Receipt, Search, ArrowUpRight, ArrowDownRight, Edit, Trash2, RefreshCw, Copy, Repeat2, Clipboard, Clock } from 'lucide-react';
+import { Plus, Receipt, Search, ArrowUpRight, ArrowDownRight, Edit, Trash2, RefreshCw, Copy, Repeat2, Clipboard, Clock, AlertCircle, CreditCard, Tag, Database } from 'lucide-react';
 import CustomSelect from '../components/CustomSelect';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
@@ -63,6 +63,21 @@ export default function Transactions() {
   const [manualTime, setManualTime] = useState('');
   const [showClock, setShowClock] = useState(false);
   const [customCategory, setCustomCategory] = useState('');
+  const [isSeedingDemo, setIsSeedingDemo] = useState(false);
+
+  const handleSeedDemoData = async () => {
+    setIsSeedingDemo(true);
+    try {
+      await api.post('/users/seed-demo-data');
+      addToast('Demo workspace populated successfully!', 'success');
+      setIsModalOpen(false);
+      await fetchData();
+    } catch (err) {
+      addToast(err.response?.data?.detail || 'Failed to seed demo data', 'error');
+    } finally {
+      setIsSeedingDemo(false);
+    }
+  };
 
   // Delete modal
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -586,9 +601,87 @@ export default function Transactions() {
       {/* Add / Edit Modal */}
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingId ? 'Edit Transaction' : 'Add Transaction'}>
         {sources.length === 0 || categories.length === 0 ? (
-          <div className="p-4 text-center">
-            <p className="text-danger mb-4">You need at least one Account and Category first.</p>
-            <button onClick={() => setIsModalOpen(false)} className="btn-secondary">Close</button>
+          <div className="p-4 text-center space-y-6">
+            <div className="w-16 h-16 bg-amber-500/10 rounded-full flex items-center justify-center mx-auto text-amber-500 border border-amber-500/20 animate-pulse">
+              <AlertCircle className="w-8 h-8" />
+            </div>
+            
+            <div className="space-y-2">
+              <h3 className="text-lg font-bold text-main">Let's Set Up Your Workspace</h3>
+              <p className="text-xs text-muted leading-relaxed max-w-sm mx-auto">
+                To start tracking your transactions, you need to set up at least one financial account and transaction category first.
+              </p>
+            </div>
+
+            {/* Action Cards Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+              <a 
+                href="/accounts"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setIsModalOpen(false);
+                  window.location.href = '/accounts';
+                }}
+                className="flex items-center gap-3 p-4 rounded-xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.05] hover:border-primary/30 transition-all text-left group"
+              >
+                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary group-hover:scale-105 transition-transform shrink-0">
+                  <CreditCard className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-main block">Create Account</span>
+                  <span className="text-[10px] text-muted">Add a bank or wallet</span>
+                </div>
+              </a>
+
+              <a 
+                href="/settings?tab=categories"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setIsModalOpen(false);
+                  window.location.href = '/settings?tab=categories';
+                }}
+                className="flex items-center gap-3 p-4 rounded-xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.05] hover:border-secondary/30 transition-all text-left group"
+              >
+                <div className="w-10 h-10 rounded-lg bg-secondary/10 flex items-center justify-center text-secondary group-hover:scale-105 transition-transform shrink-0">
+                  <Tag className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-main block">Manage Categories</span>
+                  <span className="text-[10px] text-muted">Create & edit custom categories</span>
+                </div>
+              </a>
+            </div>
+
+            {/* Quick Demo Option */}
+            <div className="p-4 rounded-xl border border-dashed border-white/10 bg-white/[0.01] space-y-3">
+              <div className="space-y-1">
+                <span className="text-xs font-bold text-main block">Want a quick preview?</span>
+                <span className="text-[10px] text-muted block text-center mx-auto">Instantly populate your vault with realistic mock transactions, categories, and accounts.</span>
+              </div>
+              <button 
+                onClick={handleSeedDemoData} 
+                disabled={isSeedingDemo}
+                className="w-full h-10 bg-primary/20 border border-primary/30 hover:bg-primary/30 text-primary rounded-xl text-xs font-bold transition-all uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isSeedingDemo ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    Seeding Workspace...
+                  </>
+                ) : (
+                  <>
+                    <Database className="w-3.5 h-3.5" />
+                    Populate Demo Workspace
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 rounded-xl text-xs font-bold border border-white/10 text-main hover:bg-white/5 transition-all cursor-pointer">
+                Close
+              </button>
+            </div>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">

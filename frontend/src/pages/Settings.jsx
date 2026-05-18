@@ -4,10 +4,12 @@ import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import {
     User, Bell, Tag, Clock, Sliders, Palette, Shield,
-    ChevronRight, Camera, Upload, Trash2,
+    ChevronRight, Camera, Upload, Trash2, AlertTriangle, Layers, Plus, Check,
 } from 'lucide-react';
 import CustomSelect from '../components/CustomSelect';
 import { BRANDING } from '../config/branding';
+import api from '../services/api';
+import PasswordFeedback from '../components/PasswordFeedback';
 
 
 // ─── Reusable Toggle ───────────────────────────────────────────────────────────
@@ -62,19 +64,106 @@ const Field = ({ label, children }) => (
 const TABS = [
     { id: 'profile',      label: 'Profile',       icon: User },
     { id: 'security',     label: 'Security',      icon: Shield },
+    { id: 'categories',   label: 'Categories',    icon: Layers },
     { id: 'notifications',label: 'Notifications', icon: Bell },
     { id: 'coupon',       label: 'Coupon Vault',  icon: Tag },
     { id: 'datetime',     label: 'Date & Time',   icon: Clock },
     { id: 'preferences',  label: 'Preferences',   icon: Sliders },
     { id: 'appearance',   label: 'Appearance',    icon: Palette },
+    { id: 'danger',      label: 'Data & Privacy',   icon: AlertTriangle },
 ];
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function Settings() {
-    const { user, updateProfile } = useAuth();
+    const { user, updateProfile, logout } = useAuth();
     const { addToast } = useToast();
 
-    const [activeTab, setActiveTab] = useState('profile');
+    const [activeTab, setActiveTab] = useState(() => {
+        const params = new URLSearchParams(window.location.search);
+        const tabParam = params.get('tab');
+        if (tabParam && TABS.some(t => t.id === tabParam)) {
+            return tabParam;
+        }
+        return 'profile';
+    });
+
+    // Categories states
+    const [categories, setCategories] = useState([]);
+    const [isLoadingCategories, setIsLoadingCategories] = useState(false);
+    const [categoryFilter, setCategoryFilter] = useState('all'); // 'all', 'expense', 'income'
+    
+    // Create category form states
+    const [newCatName, setNewCatName] = useState('');
+    const [newCatType, setNewCatType] = useState('expense');
+    const [newCatColor, setNewCatColor] = useState('#6366F1');
+    const [newCatIcon, setNewCatIcon] = useState('circle');
+    const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+
+    const fetchCategories = async () => {
+        setIsLoadingCategories(true);
+        try {
+            const token = localStorage.getItem('token');
+            const res = await api.get('/categories/', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setCategories(res.data);
+        } catch (error) {
+            console.error('Failed to fetch categories:', error);
+        } finally {
+            setIsLoadingCategories(false);
+        }
+    };
+
+    useEffect(() => {
+        if (activeTab === 'categories') {
+            fetchCategories();
+        }
+    }, [activeTab]);
+
+    const handleCreateCategory = async (e) => {
+        e.preventDefault();
+        if (!newCatName.trim()) {
+            addToast('Category name cannot be empty', 'error');
+            return;
+        }
+        setIsCreatingCategory(true);
+        try {
+            const token = localStorage.getItem('token');
+            await api.post('/categories/', {
+                name: newCatName.trim(),
+                type: newCatType,
+                color: newCatColor,
+                icon: newCatIcon
+            }, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            addToast('Category created successfully', 'success');
+            setNewCatName('');
+            fetchCategories();
+            triggerSync();
+        } catch (error) {
+            addToast(error.response?.data?.detail || 'Failed to create category', 'error');
+        } finally {
+            setIsCreatingCategory(false);
+        }
+    };
+
+    const handleDeleteCategory = async (catId) => {
+        if (!window.confirm('Are you sure you want to delete this custom category? Transactions linked to it may be affected.')) {
+            return;
+        }
+        try {
+            const token = localStorage.getItem('token');
+            await api.delete(`/categories/${catId}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            addToast('Category deleted successfully', 'success');
+            fetchCategories();
+            triggerSync();
+        } catch (error) {
+            addToast(error.response?.data?.detail || 'Failed to delete category', 'error');
+        }
+    };
 
     // Profile states
     const [fullName,    setFullName]    = useState(user?.full_name   || '');
@@ -117,6 +206,7 @@ export default function Settings() {
         notifications,      setNotifications,
         couponPreferences,  setCouponPreferences,
         dateTimePreferences,setDateTimePreferences,
+        triggerSync,
     } = useSettings();
 
     const [tempCurrency,       setTempCurrency]       = useState(currency);
@@ -124,6 +214,21 @@ export default function Settings() {
     const [tempNotifications,  setTempNotifications]  = useState(notifications);
     const [tempCouponPrefs,    setTempCouponPrefs]    = useState(couponPreferences);
     const [tempDateTimePrefs,  setTempDateTimePrefs]  = useState(dateTimePreferences);
+
+    // Danger Zone & Data Management States
+    const [isClearDataModalOpen, setIsClearDataModalOpen] = useState(false);
+    const [isDeleteAccountModalOpen, setIsDeleteAccountModalOpen] = useState(false);
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [isExporting, setIsExporting] = useState(false);
+    const [isPurging, setIsPurging] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    // Recovery Code Regeneration States
+    const [isRegenerateModalOpen, setIsRegenerateModalOpen] = useState(false);
+    const [regeneratePassword, setRegeneratePassword] = useState('');
+    const [isRegenerating, setIsRegenerating] = useState(false);
+    const [newRecoveryCode, setNewRecoveryCode] = useState('');
+    const [isSavedChecked, setIsSavedChecked] = useState(false);
 
     useEffect(() => {
         setTempCurrency(currency);
@@ -135,9 +240,6 @@ export default function Settings() {
 
     // ── Handlers ────────────────────────────────────────────────────────────────
     const handleSaveProfile = async () => {
-        if (newPassword && newPassword.length < 6) {
-            addToast('New password must be at least 6 characters long', 'error'); return;
-        }
         if (newPassword && newPassword !== confirmNewPassword) {
             addToast('New passwords do not match', 'error'); return;
         }
@@ -202,6 +304,115 @@ export default function Settings() {
     const handleSaveDateTimePrefs  = () => { setDateTimePreferences(tempDateTimePrefs); addToast('Date & time preferences saved', 'success'); };
     const handleSavePreferences    = () => { setCurrency(tempCurrency);               addToast('Preferences saved', 'success'); };
     const handleSaveAppearance     = () => { setTheme(tempTheme);                     addToast('Appearance saved', 'success'); };
+
+    const handleExportData = async (format) => {
+        setIsExporting(true);
+        try {
+            const token = localStorage.getItem('token');
+            const response = await api.get(`/users/me/export?format=${format}`, {
+                responseType: 'blob',
+                headers: {
+                    Authorization: `Bearer ${token}`
+                }
+            });
+
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `nexvault-data-export.${format === 'csv' ? 'zip' : 'json'}`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+            
+            addToast(`Data export successfully downloaded in ${format.toUpperCase()} format.`, 'success');
+        } catch (error) {
+            console.error('Export failed:', error);
+            addToast('Failed to export your data.', 'error');
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+    const handleClearFinancialData = async () => {
+        if (!confirmPassword) {
+            addToast('Please enter your password to confirm data purge.', 'error');
+            return;
+        }
+        setIsPurging(true);
+        try {
+            await api.post('/users/me/clear-data', { password: confirmPassword });
+            addToast('All financial data successfully cleared.', 'success');
+            setIsClearDataModalOpen(false);
+            setConfirmPassword('');
+            triggerSync();
+        } catch (error) {
+            addToast(error.response?.data?.detail || 'Failed to clear financial data.', 'error');
+        } finally {
+            setIsPurging(false);
+        }
+    };
+
+    const handleDeleteAccount = async () => {
+        if (!confirmPassword) {
+            addToast('Please enter your password to confirm account deletion.', 'error');
+            return;
+        }
+        setIsDeleting(true);
+        try {
+            await api.delete('/users/me', { data: { password: confirmPassword } });
+            addToast('Your account was successfully deleted.', 'success');
+            setIsDeleteAccountModalOpen(false);
+            setConfirmPassword('');
+            await logout();
+        } catch (error) {
+            addToast(error.response?.data?.detail || 'Failed to delete account.', 'error');
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
+    const handleRegenerateRecoveryCode = async (e) => {
+        if (e) e.preventDefault();
+        if (!regeneratePassword) {
+            addToast('Please enter your password to confirm recovery code regeneration.', 'error');
+            return;
+        }
+
+        // ─── Future Sensitive-Action Reauthentication Readiness ──────────
+        // FUTURE IMPLEMENTATION NOTE:
+        // For sensitive actions (data purging, recovery code regeneration, etc.),
+        // we can bind a 15-minute reauth token in localStorage/cookie.
+        // If current_time - last_auth_time > reauth_timeout (e.g., 900s),
+        // we prompt for re-verification.
+        //
+        // const reauthSession = localStorage.getItem('reauth_token');
+        // if (!reauthSession || isReauthExpired(reauthSession)) {
+        //     triggerReauthenticationModal();
+        //     return;
+        // }
+        // ────────────────────────────────────────────────────────────────
+
+        setIsRegenerating(true);
+        try {
+            const token = localStorage.getItem('token');
+            const response = await api.post('/auth/regenerate-recovery-code', 
+                { password: regeneratePassword },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            
+            if (response.data && response.data.new_recovery_code) {
+                setNewRecoveryCode(response.data.new_recovery_code);
+                setIsRegenerateModalOpen(false);
+                setRegeneratePassword('');
+                addToast('New recovery code generated successfully', 'success');
+            }
+        } catch (error) {
+            addToast(error.response?.data?.detail || 'Failed to regenerate recovery code', 'error');
+        } finally {
+            setIsRegenerating(false);
+        }
+    };
 
     const toggleCategoryVisibility = (category) => {
         setTempCouponPrefs(prev => ({
@@ -298,31 +509,282 @@ export default function Settings() {
         ),
 
         security: (
-            <div className="space-y-5">
-                <SectionTitle description="Update your password to keep your account secure.">
+            <div className="space-y-5 animate-fade-in">
+                <SectionTitle description="Update your password and manage backup recovery keys to protect your account.">
                     Security Settings
                 </SectionTitle>
 
-                <div className="max-w-md space-y-4 p-5 rounded-xl border" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
-                    <h3 className="text-sm font-semibold text-main">Change Password</h3>
-                    <Field label="Current Password">
-                        <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)}
-                            className="input-field" placeholder="••••••••" />
-                    </Field>
-                    <Field label="New Password">
-                        <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
-                            className="input-field" placeholder="••••••••" />
-                    </Field>
-                    <Field label="Confirm New Password">
-                        <input type="password" value={confirmNewPassword} onChange={(e) => setConfirmNewPassword(e.target.value)}
-                            className="input-field" placeholder="••••••••" />
-                    </Field>
-                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                    {/* Left Column: Change Password (58.3% width) */}
+                    <div className="lg:col-span-7 space-y-4 p-5 rounded-xl border" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+                        <div className="space-y-4 max-w-[420px]">
+                            <h3 className="text-sm font-semibold text-main">Change Password</h3>
+                            <Field label="Current Password">
+                                <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)}
+                                    className="input-field" placeholder="••••••••" />
+                            </Field>
+                            <Field label="New Password">
+                                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
+                                    className="input-field" placeholder="••••••••" />
+                            </Field>
+                            <Field label="Confirm New Password">
+                                <input type="password" value={confirmNewPassword} onChange={(e) => setConfirmNewPassword(e.target.value)}
+                                    className="input-field" placeholder="••••••••" />
+                            </Field>
 
-                <div className="flex justify-end">
-                    <button onClick={handleSaveProfile} disabled={isSavingProfile} className="btn-primary">
-                        {isSavingProfile ? 'Saving...' : 'Update Password'}
-                    </button>
+                            <PasswordFeedback 
+                                password={newPassword} 
+                                confirmPassword={confirmNewPassword} 
+                            />
+                        </div>
+
+                        <div className="flex justify-end pt-3 border-t border-white/5 mt-3 max-w-[420px]">
+                            <button onClick={handleSaveProfile} disabled={isSavingProfile} className="btn-primary">
+                                {isSavingProfile ? 'Saving...' : 'Update Password'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Right Column: Recovery Code (41.7% width, natural content height) */}
+                    <div className="lg:col-span-5 space-y-4 p-5 rounded-xl border animate-fade-in" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-2">
+                                <Shield className="w-4 h-4 text-primary shrink-0" />
+                                <h3 className="text-sm font-semibold text-main">Account Recovery Code</h3>
+                            </div>
+                            <p className="text-xs text-muted leading-relaxed">
+                                Generate a new secure recovery code to restore access to your account. This will immediately invalidate your previous recovery code.
+                            </p>
+                        </div>
+
+                        {/* Security Protocols / Informational Density */}
+                        <div className="space-y-2.5 pt-3 border-t border-white/5">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Security Protocols</span>
+                            <div className="space-y-2">
+                                <div className="flex items-start gap-2 text-xs text-slate-400">
+                                    <span className="text-emerald-400 font-bold mt-0.5 shrink-0">•</span>
+                                    <span>Generating a new recovery code immediately invalidates previous recovery codes.</span>
+                                </div>
+                                <div className="flex items-start gap-2 text-xs text-slate-400">
+                                    <span className="text-emerald-400 font-bold mt-0.5 shrink-0">•</span>
+                                    <span>Recovery codes are securely hashed and only visible once upon generation.</span>
+                                </div>
+                                <div className="flex items-start gap-2 text-xs text-slate-400">
+                                    <span className="text-emerald-400 font-bold mt-0.5 shrink-0">•</span>
+                                    <span>Provides a secure backup channel independent of email or SMS systems.</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Action and Security Badges */}
+                        <div className="space-y-3 pt-3">
+                            <button
+                                type="button"
+                                onClick={() => setIsRegenerateModalOpen(true)}
+                                className="w-full py-2.5 rounded-xl text-xs font-bold border border-white/10 hover:bg-white/5 transition-all text-main cursor-pointer uppercase tracking-wider"
+                            >
+                                Generate New Recovery Code
+                            </button>
+
+                            <div className="flex flex-wrap gap-1.5 pt-1">
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border border-emerald-500/10 bg-emerald-500/5 text-emerald-400">
+                                    timing-safe bcrypt
+                                </span>
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border border-white/10 bg-white/5 text-slate-300">
+                                    single-use fulfillment
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        ),
+
+        categories: (
+            <div className="space-y-6 animate-fade-in text-left">
+                <SectionTitle description="Add, remove, or review custom and default category labels used across your transactions.">
+                    Transaction Categories
+                </SectionTitle>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                    {/* Left Column: Category List & Filter */}
+                    <div className="lg:col-span-7 space-y-4 p-5 rounded-xl border flex flex-col justify-between" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+                        <div className="space-y-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/5">
+                                <h3 className="text-sm font-semibold text-main">Category Ledger</h3>
+                                
+                                {/* Segmented control */}
+                                <div className="flex space-x-1 p-0.5 rounded-lg bg-white/[0.04] border border-white/5 max-w-fit">
+                                    {['all', 'expense', 'income'].map((t) => (
+                                        <button
+                                            key={t}
+                                            type="button"
+                                            onClick={() => setCategoryFilter(t)}
+                                            className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                                                categoryFilter === t 
+                                                    ? 'bg-primary text-white shadow-sm' 
+                                                    : 'text-muted hover:text-main'
+                                            }`}
+                                        >
+                                            {t}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {isLoadingCategories ? (
+                                <div className="space-y-2 py-4">
+                                    {[1, 2, 3].map((n) => (
+                                        <div key={n} className="h-10 w-full bg-white/[0.02] border border-white/5 rounded-lg animate-pulse" />
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
+                                    {categories
+                                        .filter(c => categoryFilter === 'all' || c.type === categoryFilter)
+                                        .map((c) => (
+                                            <div 
+                                                key={c.id} 
+                                                className="flex items-center justify-between p-3 rounded-xl border border-white/5 bg-white/[0.015] hover:bg-white/[0.03] transition-all group"
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    {/* Color circle preview */}
+                                                    <div 
+                                                        className="w-4 h-4 rounded-full flex-shrink-0 shadow-inner"
+                                                        style={{ backgroundColor: c.color || '#4F46E5' }}
+                                                    />
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm font-medium text-main">{c.name}</span>
+                                                        <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider ${
+                                                            c.type === 'expense' 
+                                                                ? 'bg-danger/10 text-danger border border-danger/10' 
+                                                                : 'bg-secondary/10 text-secondary border border-secondary/10'
+                                                        }`}>
+                                                            {c.type}
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-2">
+                                                    {c.is_custom ? (
+                                                        <>
+                                                            <span className="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider bg-white/5 text-slate-400 border border-white/5">
+                                                                Custom
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleDeleteCategory(c.id)}
+                                                                className="p-1 rounded text-slate-400 hover:text-danger hover:bg-danger/10 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer"
+                                                                title="Delete Category"
+                                                            >
+                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                            </button>
+                                                        </>
+                                                    ) : (
+                                                        <span className="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider border border-primary/10 bg-primary/5 text-primary">
+                                                            System Default
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))
+                                    }
+
+                                    {categories.filter(c => categoryFilter === 'all' || c.type === categoryFilter).length === 0 && (
+                                        <div className="p-8 text-center border border-dashed border-white/5 rounded-xl bg-white/[0.005]">
+                                            <p className="text-xs text-muted">No categories registered under this filter.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Right Column: Create Category */}
+                    <div className="lg:col-span-5 space-y-4 p-5 rounded-xl border" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+                        <h3 className="text-sm font-semibold text-main pb-3 border-b border-white/5">Create New Category</h3>
+
+                        <form onSubmit={handleCreateCategory} className="space-y-4">
+                            <Field label="Category Name">
+                                <input
+                                    type="text"
+                                    required
+                                    value={newCatName}
+                                    onChange={(e) => setNewCatName(e.target.value)}
+                                    className="input-field"
+                                    placeholder="e.g. Subscriptions, Cafe"
+                                />
+                            </Field>
+
+                            <Field label="Category Flow Type">
+                                <CustomSelect
+                                    value={newCatType}
+                                    onChange={setNewCatType}
+                                    options={[
+                                        { value: 'expense', label: 'Expense (Cash Out)' },
+                                        { value: 'income', label: 'Income (Cash In)' }
+                                    ]}
+                                />
+                            </Field>
+
+                            <Field label="Color Theme">
+                                <div className="space-y-2.5 text-left">
+                                    {/* Preset HSL options */}
+                                    <div className="grid grid-cols-8 gap-2">
+                                        {[
+                                            '#EC4899', '#EF4444', '#F59E0B', '#10B981', 
+                                            '#06B6D4', '#3B82F6', '#6366F1', '#8B5CF6'
+                                        ].map((color) => {
+                                            const isSelected = newCatColor === color;
+                                            return (
+                                                <button
+                                                    key={color}
+                                                    type="button"
+                                                    onClick={() => setNewCatColor(color)}
+                                                    className="w-7 h-7 rounded-full flex items-center justify-center transition-all hover:scale-105 border border-white/5 cursor-pointer"
+                                                    style={{ backgroundColor: color }}
+                                                >
+                                                    {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    
+                                    {/* Custom hex selector */}
+                                    <div className="flex items-center gap-2">
+                                        <input 
+                                            type="color" 
+                                            value={newCatColor} 
+                                            onChange={(e) => setNewCatColor(e.target.value)}
+                                            className="w-8 h-8 rounded border border-white/10 bg-transparent cursor-pointer p-0.5 animate-pulse"
+                                        />
+                                        <input 
+                                            type="text" 
+                                            value={newCatColor} 
+                                            onChange={(e) => setNewCatColor(e.target.value)}
+                                            className="input-field font-mono text-xs uppercase"
+                                            style={{ maxWidth: '100px' }}
+                                        />
+                                    </div>
+                                </div>
+                            </Field>
+
+                            <div className="pt-3 border-t border-white/5">
+                                <button
+                                    type="submit"
+                                    disabled={isCreatingCategory}
+                                    className="w-full btn-primary h-10 flex items-center justify-center gap-2 cursor-pointer"
+                                >
+                                    {isCreatingCategory ? 'Creating...' : (
+                                        <>
+                                            <Plus className="w-4 h-4" />
+                                            Add Custom Category
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             </div>
         ),
@@ -580,6 +1042,181 @@ export default function Settings() {
                 </div>
             </div>
         ),
+
+        danger: (
+            <div className="space-y-6">
+                <SectionTitle description="Manage data exports, purges, and permanent account deletion. Actions here can be destructive and irreversible.">
+                    Data & Privacy Management
+                </SectionTitle>
+
+                {/* Section 1: Data Export */}
+                <div className="p-4 rounded-xl border animate-fade-in" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.015)' }}>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                            <h3 className="text-sm font-semibold text-main">Export Personal & Financial Data</h3>
+                            <p className="text-xs text-muted mt-1 leading-relaxed max-w-xl">
+                                Download a full archive of your transactions, accounts, categories, and settings. Available in standard JSON or ZIP-compressed CSV format.
+                            </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2 shrink-0">
+                            <button
+                                onClick={() => handleExportData('json')}
+                                disabled={isExporting}
+                                className="px-3.5 py-2 rounded-lg text-xs font-semibold border transition-all duration-200 cursor-pointer"
+                                style={{ borderColor: 'rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.03)' }}
+                            >
+                                {isExporting ? 'Exporting...' : 'Download JSON'}
+                            </button>
+                            <button
+                                onClick={() => handleExportData('csv')}
+                                disabled={isExporting}
+                                className="px-3.5 py-2 rounded-lg text-xs font-semibold border transition-all duration-200 cursor-pointer"
+                                style={{ borderColor: 'rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.03)' }}
+                            >
+                                {isExporting ? 'Exporting...' : 'Download CSV (ZIP)'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Section 2: Clear Financial Data */}
+                <div className="p-4 rounded-xl border border-amber-500/20 bg-amber-500/[0.01]">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                            <h3 className="text-sm font-semibold text-amber-500">Purge Financial Ledgers</h3>
+                            <p className="text-xs text-muted mt-1 leading-relaxed max-w-xl">
+                                Delete all of your transactions, payment sources, coupons, and recurring bills. Your login account, profile settings, and custom categories will be preserved.
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => {
+                                setIsClearDataModalOpen(true);
+                                setConfirmPassword('');
+                            }}
+                            className="px-3.5 py-2 rounded-lg text-xs font-semibold border border-amber-500/20 text-amber-500 bg-amber-500/5 hover:bg-amber-500/10 transition-all duration-200 shrink-0 cursor-pointer"
+                        >
+                            Clear Ledgers
+                        </button>
+                    </div>
+                </div>
+
+                {/* Section 3: Delete Account */}
+                <div className="p-4 rounded-xl border border-red-500/20 bg-red-500/[0.01]">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                            <h3 className="text-sm font-semibold text-red-500">Delete Account Permanently</h3>
+                            <p className="text-xs text-muted mt-1 leading-relaxed max-w-xl">
+                                Completely erase your account and all of your user data from our databases permanently. This action cannot be undone and will immediately log you out.
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => {
+                                setIsDeleteAccountModalOpen(true);
+                                setConfirmPassword('');
+                            }}
+                            className="px-3.5 py-2 rounded-lg text-xs font-semibold bg-red-600 hover:bg-red-700 text-white transition-all duration-200 shrink-0 cursor-pointer"
+                        >
+                            Delete Account
+                        </button>
+                    </div>
+                </div>
+
+                {/* Clear Financial Data Modal */}
+                {isClearDataModalOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
+                        <div className="w-full max-w-md card p-6 border border-white/10 shadow-2xl relative">
+                            <h3 className="text-base font-bold text-main">Clear Financial Data</h3>
+                            <p className="text-xs text-muted mt-2 leading-relaxed">
+                                Are you sure you want to clear your ledgers? This will permanently delete all transactions, balances, sources, and vault records. Custom categories and profile preferences will remain intact.
+                            </p>
+
+                            <div className="mt-4 space-y-3">
+                                <label className="block text-[10px] font-bold text-muted uppercase tracking-wider">Confirm Your Password</label>
+                                <input
+                                    type="password"
+                                    placeholder="Enter current password"
+                                    value={confirmPassword}
+                                    onChange={(e) => setConfirmPassword(e.target.value)}
+                                    className="w-full px-3 py-2 text-sm bg-black/20 border border-white/10 rounded-lg text-main focus:outline-none focus:border-amber-500/40"
+                                />
+                            </div>
+
+                            <div className="flex justify-end gap-2 mt-6">
+                                <button
+                                    onClick={() => {
+                                        setIsClearDataModalOpen(false);
+                                        setConfirmPassword('');
+                                    }}
+                                    className="px-4 py-2 rounded-lg text-xs font-semibold border border-white/10 text-main hover:bg-white/5 transition-all cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleClearFinancialData}
+                                    disabled={isPurging}
+                                    className="px-4 py-2 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white transition-all cursor-pointer"
+                                >
+                                    {isPurging ? 'Purging...' : 'Confirm Purge'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Delete Account Modal */}
+                {isDeleteAccountModalOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
+                        <div className="w-full max-w-md card p-6 border border-white/10 shadow-2xl relative">
+                            <h3 className="text-base font-bold text-main animate-pulse">Are you absolutely sure?</h3>
+                            
+                            <div className="p-3.5 rounded-lg border border-red-500/20 bg-red-500/[0.02] mt-3">
+                                <p className="text-xs font-semibold text-red-500">Deleting your account will permanently remove:</p>
+                                <ul className="text-xs text-muted mt-2 space-y-1 list-disc list-inside">
+                                    <li>transactions</li>
+                                    <li>vaults</li>
+                                    <li>accounts</li>
+                                    <li>analytics</li>
+                                    <li>settings</li>
+                                    <li>recurring bills</li>
+                                    <li>demo data</li>
+                                </ul>
+                                <p className="text-xs font-semibold text-red-500 mt-2">This action cannot be undone.</p>
+                            </div>
+
+                            <div className="mt-4 space-y-3">
+                                <label className="block text-[10px] font-bold text-muted uppercase tracking-wider">Confirm Your Password</label>
+                                <input
+                                    type="password"
+                                    placeholder="Enter current password"
+                                    value={confirmPassword}
+                                    onChange={(e) => setConfirmPassword(e.target.value)}
+                                    className="w-full px-3 py-2 text-sm bg-black/20 border border-white/10 rounded-lg text-main focus:outline-none focus:border-red-500/40"
+                                />
+                            </div>
+
+                            <div className="flex justify-end gap-2 mt-6">
+                                <button
+                                    onClick={() => {
+                                        setIsDeleteAccountModalOpen(false);
+                                        setConfirmPassword('');
+                                    }}
+                                    className="px-4 py-2 rounded-lg text-xs font-semibold border border-white/10 text-main hover:bg-white/5 transition-all cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleDeleteAccount}
+                                    disabled={isDeleting}
+                                    className="px-4 py-2 rounded-lg text-xs font-semibold bg-red-600 hover:bg-red-700 text-white transition-all cursor-pointer"
+                                >
+                                    {isDeleting ? 'Deleting...' : 'Permanently Delete My Account'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+        ),
     };
 
     return (
@@ -625,6 +1262,140 @@ export default function Settings() {
                     {panels[activeTab]}
                 </div>
             </div>
+
+            {/* Recovery Code Password Confirmation Modal */}
+            {isRegenerateModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+                    <div className="w-full max-w-md glass-premium p-8 rounded-[32px] border border-white/10 shadow-[0_40px_100px_rgba(0,0,0,0.8)] bg-slate-900/60 relative text-left">
+                        <h2 className="text-xl font-bold tracking-tight text-main mb-3">Confirm Password</h2>
+                        <p className="text-xs text-muted leading-relaxed mb-6">
+                            For security, please enter your current account password to generate a new recovery code.
+                        </p>
+                        
+                        <form onSubmit={handleRegenerateRecoveryCode} className="space-y-4">
+                            <Field label="Current Password">
+                                <input
+                                    type="password"
+                                    value={regeneratePassword}
+                                    onChange={(e) => setRegeneratePassword(e.target.value)}
+                                    className="w-full h-12 bg-white/5 border border-white/10 rounded-2xl px-5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder:text-white/20 text-white"
+                                    placeholder="••••••••"
+                                    required
+                                />
+                            </Field>
+                            
+                            <div className="flex gap-3 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setIsRegenerateModalOpen(false);
+                                        setRegeneratePassword('');
+                                    }}
+                                    className="flex-1 h-12 bg-white/5 border border-white/10 hover:bg-white/10 rounded-xl text-sm font-bold text-main cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={isRegenerating}
+                                    className="flex-1 h-12 bg-primary hover:shadow-[0_0_20px_rgba(59,130,246,0.3)] rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2 cursor-pointer"
+                                >
+                                    {isRegenerating ? (
+                                        <>
+                                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                            Generating...
+                                        </>
+                                    ) : (
+                                        'Confirm'
+                                    )}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Successful Regeneration Modal */}
+            {newRecoveryCode && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in text-center">
+                    <div className="w-full max-w-lg glass-premium p-8 md:p-10 rounded-[32px] border border-white/10 shadow-[0_40px_100px_rgba(0,0,0,0.8)] bg-slate-900/60 relative text-left">
+                        <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-6 text-primary border border-primary/20">
+                            <Shield className="w-8 h-8 animate-pulse" />
+                        </div>
+                        
+                        <h2 className="text-2xl font-bold tracking-tight text-main mb-3 text-center">New Recovery Code</h2>
+                        
+                        <p className="text-xs text-muted leading-relaxed max-w-md mx-auto mb-6 text-center">
+                            A brand new recovery code has been generated. Your previous recovery code is now invalid. Please save this code securely.
+                        </p>
+                        
+                        {/* Monospace Code Display Box */}
+                        <div className="bg-black/40 border border-white/10 rounded-2xl p-5 mb-6 relative group overflow-hidden text-center">
+                            <span className="font-mono text-xl md:text-2xl font-bold text-primary tracking-widest block select-all font-semibold">
+                                {newRecoveryCode}
+                            </span>
+                        </div>
+                        
+                        {/* Actions: Copy & Download */}
+                        <div className="grid grid-cols-2 gap-4 mb-6">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    navigator.clipboard.writeText(newRecoveryCode);
+                                    addToast("New recovery code copied securely", "success");
+                                }}
+                                className="px-4 py-3 rounded-xl text-xs font-bold border border-white/10 bg-white/[0.02] hover:bg-white/5 transition-all text-main cursor-pointer"
+                            >
+                                Copy Code
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const element = document.createElement("a");
+                                    const fileContent = `NEXVAULT RECOVERY CODE\n======================\n\nCode: ${newRecoveryCode}\n\nWARNING:\nStore this recovery code securely.\nAnyone with access to this code can reset your NEXVAULT account password.`;
+                                    const file = new Blob([fileContent], {type: 'text/plain'});
+                                    element.href = URL.createObjectURL(file);
+                                    element.download = "nexvault-recovery-code.txt";
+                                    document.body.appendChild(element);
+                                    element.click();
+                                    document.body.removeChild(element);
+                                    addToast("Recovery code TXT saved securely", "success");
+                                }}
+                                className="px-4 py-3 rounded-xl text-xs font-bold border border-white/10 bg-white/[0.02] hover:bg-white/5 transition-all text-main cursor-pointer"
+                            >
+                                Download TXT
+                            </button>
+                        </div>
+                        
+                        {/* Mandatory Save Confirmation Checkbox */}
+                        <div className="flex items-start gap-3 text-left p-4 rounded-xl border border-white/5 bg-white/[0.01] mb-6">
+                            <input
+                                type="checkbox"
+                                id="confirmRegenSaved"
+                                checked={isSavedChecked}
+                                onChange={(e) => setIsSavedChecked(e.target.checked)}
+                                className="w-4 h-4 mt-0.5 rounded border-white/10 bg-black/40 text-primary focus:ring-primary/20 accent-primary cursor-pointer animate-fade-in"
+                            />
+                            <label htmlFor="confirmRegenSaved" className="text-xs text-muted leading-relaxed cursor-pointer select-none">
+                                I have securely saved my new recovery code. I understand it cannot be recovered or shown again.
+                            </label>
+                        </div>
+                        
+                        {/* Continue Button */}
+                        <button
+                            type="button"
+                            disabled={!isSavedChecked}
+                            onClick={() => {
+                                setNewRecoveryCode('');
+                                setIsSavedChecked(false);
+                            }}
+                            className="w-full h-14 bg-primary text-white rounded-2xl font-bold text-lg hover:shadow-[0_0_30px_rgba(59,130,246,0.4)] hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-40 disabled:scale-100 disabled:pointer-events-none cursor-pointer"
+                        >
+                            Continue
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

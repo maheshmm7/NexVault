@@ -50,3 +50,21 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
+
+
+class DeleteAccountRequest(BaseModel):
+    password: str
+
+
+class UserSignupResponse(UserResponse):
+    recovery_code: str
+
+
+class RecoverAccountRequest(BaseModel):
+    email: EmailStr
+    recovery_code: str
+    new_password: str
+
+
+class RegenerateRecoveryCodeRequest(BaseModel):
+    password: str
