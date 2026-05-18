@@ -1,43 +1,59 @@
-import smtplib
+import requests
 import logging
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from app.core.config import settings
 
 logger = logging.getLogger("app.utils.email")
 
 def send_smtp_email(to_email: str, subject: str, html_content: str, text_content: str = None) -> bool:
     """
-    Sends a transactional email using Brevo SMTP.
-    Includes timeout protection, context manager safety, and safe error logging.
+    Sends a transactional email using the Brevo HTTP API.
+    Includes timeout protection, secure key handling, and safe error logging.
     """
-    if not settings.SMTP_HOST or not settings.SMTP_USER or not settings.SMTP_PASSWORD:
-        logger.warning("SMTP configuration is incomplete. Skipping email delivery.")
-        raise ValueError("SMTP configuration is incomplete.")
+    if not settings.BREVO_API_KEY:
+        logger.warning("Brevo API key configuration is missing. Skipping email delivery.")
+        raise ValueError("Brevo API key is not configured.")
 
-    # Create message container
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = subject
-    msg['From'] = settings.SMTP_FROM_EMAIL or settings.SMTP_USER
-    msg['To'] = to_email
-
+    sender_email = settings.SMTP_FROM_EMAIL or "onboarding@resend.dev"
+    
     # Plain text fallback body
     if not text_content:
         text_content = "Please view this email in an HTML-compatible client."
-        
-    msg.attach(MIMEText(text_content, 'plain', 'utf-8'))
-    msg.attach(MIMEText(html_content, 'html', 'utf-8'))
+
+    url = "https://api.brevo.com/v3/smtp/email"
+    headers = {
+        "api-key": settings.BREVO_API_KEY,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+    
+    payload = {
+        "sender": {
+            "name": "NEXVAULT",
+            "email": sender_email
+        },
+        "to": [
+            {
+                "email": to_email
+            }
+        ],
+        "subject": subject,
+        "htmlContent": html_content,
+        "textContent": text_content
+    }
 
     try:
-        # Establish secure SSL connection with a 15-second timeout protection to prevent hanging
-        with smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as server:
-            server.ehlo()
-            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            server.sendmail(msg['From'], to_email, msg.as_string())
+        # Secure HTTPS call with a 15-second timeout to prevent route hanging
+        response = requests.post(url, json=payload, headers=headers, timeout=15)
+        
+        # Check for success status codes
+        if response.status_code in [200, 201, 202]:
+            logger.info(f"Successfully sent transactional email to {to_email} via Brevo HTTP API.")
+            return True
+        else:
+            logger.error(f"Brevo HTTP API returned status code {response.status_code} during mail delivery to {to_email}")
+            raise RuntimeError(f"Brevo API error: {response.status_code}")
             
-        logger.info(f"Successfully sent email to {to_email}")
-        return True
     except Exception as e:
-        # Logging hygiene: NEVER print settings.SMTP_PASSWORD or other credentials
-        logger.error(f"SMTP transport failure occurred during email dispatch to {to_email}: {str(e)}")
-        raise RuntimeError("SMTP transport failure occurred during email dispatch.")
+        # Logging hygiene: NEVER print settings.BREVO_API_KEY or other credentials
+        logger.error(f"HTTP delivery transport failure occurred during email dispatch to {to_email}: {str(e)}")
+        raise RuntimeError("HTTP delivery transport failure occurred during email dispatch.")

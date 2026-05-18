@@ -14,10 +14,7 @@ class Settings(BaseSettings):
     COOKIE_SAMESITE: str = "lax"  # 'lax', 'strict', or 'none'
     
     # Transactional Email & Frontend Integrations
-    SMTP_HOST: str = "smtp-relay.brevo.com"
-    SMTP_PORT: int = 465
-    SMTP_USER: str = ""
-    SMTP_PASSWORD: str = ""
+    BREVO_API_KEY: str = ""
     SMTP_FROM_EMAIL: str = ""
     FRONTEND_URL: str = "http://localhost:5173"
     
