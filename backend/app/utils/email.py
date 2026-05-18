@@ -29,10 +29,8 @@ def send_smtp_email(to_email: str, subject: str, html_content: str, text_content
     msg.attach(MIMEText(html_content, 'html', 'utf-8'))
 
     try:
-        # Establish connection with a 15-second timeout protection to prevent hanging
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as server:
-            server.ehlo()
-            server.starttls()  # Secure connection via TLS
+        # Establish secure SSL connection with a 15-second timeout protection to prevent hanging
+        with smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as server:
             server.ehlo()
             server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
             server.sendmail(msg['From'], to_email, msg.as_string())
