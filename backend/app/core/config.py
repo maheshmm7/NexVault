@@ -14,7 +14,11 @@ class Settings(BaseSettings):
     COOKIE_SAMESITE: str = "lax"  # 'lax', 'strict', or 'none'
     
     # Transactional Email & Frontend Integrations
-    RESEND_API_KEY: str = ""
+    SMTP_HOST: str = "smtp-relay.brevo.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = ""
     FRONTEND_URL: str = "http://localhost:5173"
     
     # CORS Configuration - comma separated string or JSON list

@@ -2,7 +2,11 @@ from datetime import timedelta
 import datetime
 import secrets
 import hashlib
-import resend
+import html
+import logging
+from app.utils.email import send_smtp_email
+
+logger = logging.getLogger("app.api.auth")
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -59,17 +63,15 @@ def logout(response: Response):
     return {"message": "Logged out successfully"}
 
 
-@router.post("/forgot-password")
-def forgot_password(
-    payload: ForgotPasswordRequest,
-    db: Session = Depends(deps.get_db)
-):
-    # Always return a success response to prevent user enumeration attacks
-    success_response = {"message": "If your email is registered, you will receive a reset link shortly."}
-    
-    user = db.query(User).filter(User.email == payload.email).first()
+def process_password_reset_flow(db: Session, email: str) -> None:
+    """
+    Decoupled service function that executes the password reset token generation,
+    storage, template rendering, escaping, and SMTP transactional email delivery.
+    Structured cleanly to allow future per-user/per-IP rate limiting or decorators.
+    """
+    user = db.query(User).filter(User.email == email).first()
     if not user:
-        return success_response
+        return
 
     # Generate a cryptographically secure random token
     token = secrets.token_urlsafe(32)
@@ -83,7 +85,11 @@ def forgot_password(
 
     reset_link = f"{settings.FRONTEND_URL}/reset-password/{token}"
     
-    # Email HTML Template
+    # Safe HTML Escaping to prevent injection in templated contents
+    escaped_reset_link = html.escape(reset_link)
+    escaped_email = html.escape(user.email)
+
+    # Email HTML Template (visually preserving original dark-themed style)
     email_html = f"""
     <div style="font-family: 'Outfit', 'Inter', sans-serif; background-color: #0f172a; color: #ffffff; padding: 40px; border-radius: 12px; max-width: 600px; margin: 0 auto; border: 1px solid #1e293b;">
       <div style="text-align: center; margin-bottom: 30px;">
@@ -95,14 +101,14 @@ def forgot_password(
         <p style="color: #cbd5e1; line-height: 1.6; font-size: 15px;">Hello,</p>
         <p style="color: #cbd5e1; line-height: 1.6; font-size: 15px;">We received a request to reset the password for your NEXVAULT account. Click the button below to secure your new credentials:</p>
         <div style="text-align: center; margin: 30px 0;">
-          <a href="{reset_link}" target="_blank" style="background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: 600; display: inline-block; font-size: 15px; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);">Reset Password</a>
+          <a href="{escaped_reset_link}" target="_blank" style="background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: 600; display: inline-block; font-size: 15px; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);">Reset Password</a>
         </div>
         <p style="color: #cbd5e1; line-height: 1.6; font-size: 14px; text-align: center; word-break: break-all;">
           Or copy and paste this link in your browser:<br/>
-          <a href="{reset_link}" target="_blank" style="color: #6366f1; text-decoration: underline;">{reset_link}</a>
+          <a href="{escaped_reset_link}" target="_blank" style="color: #6366f1; text-decoration: underline;">{escaped_reset_link}</a>
         </p>
         <hr style="border: 0; border-top: 1px solid #334155; margin: 20px 0;" />
-        <p style="color: #94a3b8; font-size: 13px; line-height: 1.5;">This reset link will expire in <strong>15 minutes</strong>. If you did not make this request, you can safely ignore this email and your password will remain unchanged.</p>
+        <p style="color: #94a3b8; font-size: 13px; line-height: 1.5;">This reset link will expire in <strong>15 minutes</strong>. If you did not make this request for {escaped_email}, you can safely ignore this email and your password will remain unchanged.</p>
       </div>
       <div style="text-align: center; margin-top: 30px; color: #64748b; font-size: 12px;">
         <p>© 2026 NEXVAULT. All rights reserved.</p>
@@ -110,24 +116,37 @@ def forgot_password(
     </div>
     """
 
-    # Deliver via Resend
-    if settings.RESEND_API_KEY:
-        try:
-            resend.api_key = settings.RESEND_API_KEY
-            resend.Emails.send({
-                "from": "NEXVAULT <onboarding@resend.dev>",
-                "to": payload.email,
-                "subject": "Reset Your NEXVAULT Password",
-                "html": email_html
-            })
-        except Exception as e:
-            # Fallback console log print for extreme safety
-            print("FAILED to send Resend email, fallback print (development):", e)
+    try:
+        send_smtp_email(
+            to_email=user.email,
+            subject="Reset Your NEXVAULT Password",
+            html_content=email_html
+        )
+    except Exception as e:
+        # Logging hygiene: Never include sensitive SMTP credentials, raw tokens, or recovery codes in logs.
+        logger.error(f"SMTP delivery failed during forgot-password flow: {str(e)}")
+        
+        # Controlled Development Fallback: only print when COOKIE_SECURE is False (dev env)
+        if not settings.COOKIE_SECURE:
+            print("[DEVELOPMENT ONLY FALLBACK] SMTP failed. Printing reset link in console:")
             print("RESET LINK URL:", reset_link)
-    else:
-        # Development mode fallback: print directly in console logs
-        print("RESEND_API_KEY is missing. Printing reset URL in logs for development:")
-        print("RESET LINK URL:", reset_link)
+        else:
+            raise RuntimeError("Email delivery transport failed.")
+
+
+@router.post("/forgot-password")
+def forgot_password(
+    payload: ForgotPasswordRequest,
+    db: Session = Depends(deps.get_db)
+):
+    # Always return a success response to prevent user enumeration attacks
+    success_response = {"message": "If your email is registered, you will receive a reset link shortly."}
+    
+    try:
+        process_password_reset_flow(db, payload.email)
+    except Exception:
+        # Logging hygiene: Never expose full exception traces to public responses
+        pass
 
     return success_response
 

@@ -71,17 +71,30 @@ export default function ForgotPassword() {
                 <div className="w-16 h-16 bg-success/10 rounded-full flex items-center justify-center mx-auto mb-6 text-success border border-success/20">
                   <CheckCircle2 className="w-8 h-8" />
                 </div>
-                <h1 className="text-2xl font-bold tracking-tight mb-4">Check Your Email</h1>
-                <p className="text-muted text-sm leading-relaxed mb-6">
+                <h1 className="text-2xl font-bold tracking-tight mb-4">Reset Link Sent</h1>
+                <p className="text-sm text-slate-300 leading-relaxed mb-6">
                   If your email is registered in our secure database, you will receive a password reset link shortly.
                 </p>
 
-                <div className="p-4 rounded-2xl border border-white/5 bg-white/[0.02] text-center mb-6">
-                  <p className="text-xs text-muted leading-relaxed">
-                    Having trouble receiving reset emails?<br />
-                    NEXVAULT is currently in beta testing.<br />
-                    Please contact support for password recovery assistance.
-                  </p>
+                <div className="p-5 rounded-2xl border border-white/5 bg-white/[0.02] text-left space-y-3 mb-8">
+                  <div className="flex items-start gap-2.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-primary mt-1.5 shrink-0 animate-pulse" />
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Please check your <strong className="text-main">Inbox</strong>, <strong className="text-main">Spam</strong>, and <strong className="text-main">Promotions</strong> folders.
+                    </p>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-slate-400 mt-1.5 shrink-0" />
+                    <p className="text-xs text-muted leading-relaxed">
+                      Email delivery may take a few moments depending on network latency.
+                    </p>
+                  </div>
+                  <div className="pt-2.5 border-t border-white/5 flex items-start gap-2.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-amber-500/60 mt-1.5 shrink-0" />
+                    <p className="text-xs text-muted leading-relaxed italic">
+                      Didn't receive the email? Try requesting again in a few minutes, or use your secure recovery code.
+                    </p>
+                  </div>
                 </div>
 
                 <Link 
