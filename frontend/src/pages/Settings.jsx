@@ -3,7 +3,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import {
-    User, Bell, Tag, Clock, Sliders, Palette, Shield,
+    User, Bell, Tag, Clock, Sliders, Palette, Shield, Laptop,
     ChevronRight, Camera, Upload, Trash2, AlertTriangle, Layers, Plus, Check,
 } from 'lucide-react';
 import CustomSelect from '../components/CustomSelect';
@@ -64,6 +64,7 @@ const Field = ({ label, children }) => (
 const TABS = [
     { id: 'profile',      label: 'Profile',       icon: User },
     { id: 'security',     label: 'Security',      icon: Shield },
+    { id: 'sessions',     label: 'Devices & Sessions', icon: Laptop },
     { id: 'categories',   label: 'Categories',    icon: Layers },
     { id: 'notifications',label: 'Notifications', icon: Bell },
     { id: 'coupon',       label: 'Coupon Vault',  icon: Tag },
@@ -91,6 +92,48 @@ export default function Settings() {
     const [categories, setCategories] = useState([]);
     const [isLoadingCategories, setIsLoadingCategories] = useState(false);
     const [categoryFilter, setCategoryFilter] = useState('all'); // 'all', 'expense', 'income'
+
+    // Sessions states
+    const [sessions, setSessions] = useState([]);
+    const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+
+    const fetchSessions = async () => {
+        setIsLoadingSessions(true);
+        try {
+            const res = await api.get('/users/me/sessions');
+            setSessions(res.data);
+        } catch (err) {
+            addToast('Failed to retrieve active sessions', 'error');
+        } finally {
+            setIsLoadingSessions(false);
+        }
+    };
+
+    const handleRevokeSession = async (sessionId) => {
+        try {
+            await api.delete(`/users/me/sessions/${sessionId}`);
+            addToast('Session revoked successfully', 'success');
+            fetchSessions();
+        } catch (err) {
+            addToast('Failed to revoke session', 'error');
+        }
+    };
+
+    const handleRevokeAllOtherSessions = async () => {
+        try {
+            await api.delete('/users/me/sessions');
+            addToast('All other sessions revoked successfully', 'success');
+            fetchSessions();
+        } catch (err) {
+            addToast('Failed to revoke other sessions', 'error');
+        }
+    };
+
+    useEffect(() => {
+        if (activeTab === 'sessions') {
+            fetchSessions();
+        }
+    }, [activeTab]);
     
     // Create category form states
     const [newCatName, setNewCatName] = useState('');
@@ -102,10 +145,7 @@ export default function Settings() {
     const fetchCategories = async () => {
         setIsLoadingCategories(true);
         try {
-            const token = localStorage.getItem('token');
-            const res = await api.get('/categories/', {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const res = await api.get('/categories/');
             setCategories(res.data);
         } catch (error) {
             console.error('Failed to fetch categories:', error);
@@ -128,14 +168,11 @@ export default function Settings() {
         }
         setIsCreatingCategory(true);
         try {
-            const token = localStorage.getItem('token');
             await api.post('/categories/', {
                 name: newCatName.trim(),
                 type: newCatType,
                 color: newCatColor,
                 icon: newCatIcon
-            }, {
-                headers: { Authorization: `Bearer ${token}` }
             });
             addToast('Category created successfully', 'success');
             setNewCatName('');
@@ -153,10 +190,7 @@ export default function Settings() {
             return;
         }
         try {
-            const token = localStorage.getItem('token');
-            await api.delete(`/categories/${catId}`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            await api.delete(`/categories/${catId}`);
             addToast('Category deleted successfully', 'success');
             fetchCategories();
             triggerSync();
@@ -207,6 +241,7 @@ export default function Settings() {
         couponPreferences,  setCouponPreferences,
         dateTimePreferences,setDateTimePreferences,
         triggerSync,
+        currencyMap,
     } = useSettings();
 
     const [tempCurrency,       setTempCurrency]       = useState(currency);
@@ -308,12 +343,8 @@ export default function Settings() {
     const handleExportData = async (format) => {
         setIsExporting(true);
         try {
-            const token = localStorage.getItem('token');
             const response = await api.get(`/users/me/export?format=${format}`, {
-                responseType: 'blob',
-                headers: {
-                    Authorization: `Bearer ${token}`
-                }
+                responseType: 'blob'
             });
 
             const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -395,10 +426,8 @@ export default function Settings() {
 
         setIsRegenerating(true);
         try {
-            const token = localStorage.getItem('token');
             const response = await api.post('/auth/regenerate-recovery-code', 
-                { password: regeneratePassword },
-                { headers: { Authorization: `Bearer ${token}` } }
+                { password: regeneratePassword }
             );
             
             if (response.data && response.data.new_recovery_code) {
@@ -597,6 +626,104 @@ export default function Settings() {
                         </div>
                     </div>
                 </div>
+            </div>
+        ),
+
+        sessions: (
+            <div className="space-y-5 animate-fade-in">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <SectionTitle description="Track and manage active sessions across your devices. Revoking a session terminates that browser's access immediately.">
+                        Devices & Sessions
+                    </SectionTitle>
+                    {sessions.length > 1 && (
+                        <button
+                            onClick={handleRevokeAllOtherSessions}
+                            className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-danger/25 text-danger bg-danger/5 hover:bg-danger/10 transition-all cursor-pointer"
+                        >
+                            Sign Out of All Other Devices
+                        </button>
+                    )}
+                </div>
+
+                {isLoadingSessions ? (
+                    <div className="space-y-3">
+                        {[1, 2].map(i => (
+                            <div key={i} className="h-16 rounded-xl border border-white/5 bg-white/[0.01] animate-pulse" />
+                        ))}
+                    </div>
+                ) : sessions.length === 0 ? (
+                    <div className="p-6 rounded-xl border border-white/5 bg-white/[0.01] text-center text-muted">
+                        No active sessions found.
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        {sessions.map(s => {
+                            const isCurrent = s.is_current;
+                            
+                            const formatLastActive = (dateString) => {
+                                if (isCurrent) return 'Active Now';
+                                if (!dateString) return 'Unknown';
+                                const diff = Date.now() - new Date(dateString).getTime();
+                                const mins = Math.floor(diff / 60000);
+                                if (mins < 1)  return 'Last active just now';
+                                if (mins < 60) return `Last active ${mins}m ago`;
+                                const hrs = Math.floor(mins / 60);
+                                if (hrs < 24)  return `Last active ${hrs}h ago`;
+                                const days = Math.floor(hrs / 24);
+                                return `Last active ${days}d ago`;
+                            };
+
+                            return (
+                                <div
+                                    key={s.id}
+                                    className="p-4 rounded-xl border flex items-center justify-between gap-4 transition-all hover:border-white/10 hover:bg-white/[0.015]"
+                                    style={{
+                                        borderColor: isCurrent ? 'rgba(var(--primary-rgb, 99, 102, 241), 0.2)' : 'rgba(255,255,255,0.06)',
+                                        background: isCurrent ? 'rgba(var(--primary-rgb, 99, 102, 241), 0.02)' : 'rgba(255,255,255,0.01)'
+                                    }}
+                                >
+                                    <div className="flex items-center gap-3.5 min-w-0">
+                                        <div className="w-10 h-10 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-muted shrink-0">
+                                            <Laptop className="w-5 h-5" />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <span className="text-sm font-semibold text-main truncate">
+                                                    {s.device_name || 'Unknown Device'} ({s.os_name || 'Unknown OS'})
+                                                </span>
+                                                {isCurrent ? (
+                                                    <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold border border-primary/20">
+                                                        Current Session
+                                                    </span>
+                                                ) : (
+                                                    <span className="px-2 py-0.5 rounded-full bg-white/5 text-muted text-[10px] font-medium border border-white/5">
+                                                        Active Now
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <p className="text-xs text-muted mt-1 truncate">
+                                                {s.browser_name || 'Web Browser'} • {s.ip_address || 'Unknown IP'}
+                                            </p>
+                                            <p className="text-[10px] text-muted/60 mt-0.5">
+                                                {formatLastActive(s.last_active_at)}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    
+                                    {!isCurrent && (
+                                        <button
+                                            onClick={() => handleRevokeSession(s.id)}
+                                            className="p-2 rounded-lg text-muted hover:text-danger hover:bg-danger/10 transition-colors shrink-0"
+                                            title="Revoke session"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
         ),
 
@@ -952,6 +1079,7 @@ export default function Settings() {
                                     { value: 'INR', label: 'INR (₹)' },
                                     { value: 'USD', label: 'USD ($)' },
                                     { value: 'EUR', label: 'EUR (€)' },
+                                    { value: 'GBP', label: 'GBP (£)' },
                                 ]}
                             />
                         </Field>
@@ -965,7 +1093,7 @@ export default function Settings() {
                         <span className="text-xs text-muted uppercase font-semibold tracking-wider block mb-2">Format Snapshot</span>
                         <div className="flex items-baseline gap-2">
                             <span className="text-2xl font-bold text-main">
-                                {tempCurrency === 'INR' ? '₹' : tempCurrency === 'EUR' ? '€' : '$'}
+                                {currencyMap?.[tempCurrency] || '$'}
                                 1,250.00
                             </span>
                             <span className="text-xs text-muted">(Example Value)</span>

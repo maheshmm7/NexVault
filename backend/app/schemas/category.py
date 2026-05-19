@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional
 from datetime import datetime
 
@@ -27,6 +27,12 @@ class CategoryResponse(CategoryBase):
     is_custom: bool
     created_at: datetime
     updated_at: Optional[datetime] = None
+
+    @field_validator("created_at", "updated_at", mode="before")
+    @classmethod
+    def validate_dates(cls, v):
+        from app.schemas.utils import ensure_utc
+        return ensure_utc(v)
 
     class Config:
         from_attributes = True

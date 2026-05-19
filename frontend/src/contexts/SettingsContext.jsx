@@ -14,6 +14,7 @@ const currencyMap = {
     INR: '₹',
     USD: '$',
     EUR: '€',
+    GBP: '£',
 };
 
 const DEFAULTS = {
@@ -78,8 +79,8 @@ export function SettingsProvider({ children }) {
 
     // ─── Hydrate from server on mount via active cookie session ─────────────
     const triggerSync = useCallback(async () => {
-        const token = localStorage.getItem('token');
-        if (!token) return;
+        const isAuth = localStorage.getItem('isAuthenticated');
+        if (!isAuth) return;
         try {
             const res = await api.get('/users/me/settings');
             const s = res.data;
@@ -144,6 +145,7 @@ export function SettingsProvider({ children }) {
                 currency,
                 setCurrency,
                 currencySymbol,
+                currencyMap,
                 theme,
                 setTheme,
                 notifications,

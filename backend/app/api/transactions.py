@@ -19,7 +19,11 @@ def get_transactions(
     return (
         db.query(Transaction)
         .filter(Transaction.user_id == current_user.id)
-        .order_by(Transaction.timestamp.desc())
+        .order_by(
+            Transaction.timestamp.desc(),
+            Transaction.created_at.desc(),
+            Transaction.id.desc()
+        )
         .offset(skip)
         .limit(limit)
         .all()

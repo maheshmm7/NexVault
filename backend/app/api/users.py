@@ -1,21 +1,27 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from app.api import deps
 from app.core.security import get_password_hash, verify_password, validate_password_strength
 from app.models.user import User
-from app.schemas.user import UserCreate, UserResponse, UserUpdate, UserSettings, DeleteAccountRequest, UserSignupResponse
+from app.schemas.user import UserCreate, UserResponse, UserUpdate, UserSettings, DeleteAccountRequest, UserSignupResponse, VerifyEmailRequest
 from app.models.source import PaymentSource
 from app.models.category import Category
 from app.models.transaction import Transaction
 from app.models.coupon import Coupon
-from datetime import datetime, timedelta
+from app.models.session import UserSession
+from app.models.notification import Notification
+from app.core.rate_limit import limiter
+from app.core.config import settings
+from datetime import datetime, timedelta, timezone
+from jose import jwt
 import json
 import io
 import csv
 import zipfile
 import secrets
 import string
+import hashlib
 
 router = APIRouter()
 
@@ -38,6 +44,44 @@ def generate_recovery_code() -> str:
     return f"NVX-{group()}-{group()}-{group()}"
 
 
+def send_verification_email(email: str, code: str):
+    email_html = f"""
+    <div style="font-family: 'Outfit', 'Inter', sans-serif; background-color: #0f172a; color: #ffffff; padding: 40px; border-radius: 12px; max-width: 600px; margin: 0 auto; border: 1px solid #1e293b;">
+      <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #6366f1; margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.05em;">NEXVAULT</h1>
+        <p style="color: #94a3b8; font-size: 14px; margin-top: 5px;">Secure Wealth Infrastructure</p>
+      </div>
+      <div style="background-color: #1e293b; padding: 30px; border-radius: 8px; border: 1px solid #334155;">
+        <h2 style="color: #ffffff; margin-top: 0; font-size: 20px; text-align: center;">Verify Your Email Address</h2>
+        <p style="color: #cbd5e1; line-height: 1.6; font-size: 15px;">Hello,</p>
+        <p style="color: #cbd5e1; line-height: 1.6; font-size: 15px;">Thank you for registering an account on NEXVAULT. Please use the following verification code to verify your email address. This code is valid for 15 minutes:</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <span style="font-family: monospace; background-color: #0f172a; color: #6366f1; padding: 12px 24px; font-size: 28px; font-weight: 700; border-radius: 8px; border: 1px solid #334155; letter-spacing: 0.25em; display: inline-block;">{code}</span>
+        </div>
+        <p style="color: #cbd5e1; line-height: 1.6; font-size: 14px; text-align: center;">
+          If you did not create a NEXVAULT account, please ignore this email.
+        </p>
+      </div>
+      <div style="text-align: center; margin-top: 30px; color: #64748b; font-size: 12px;">
+        <p>© 2026 NEXVAULT. All rights reserved.</p>
+      </div>
+    </div>
+    """
+    from app.utils.email import send_smtp_email
+    import logging
+    logger = logging.getLogger("app.api.users")
+    try:
+        send_smtp_email(
+            to_email=email,
+            subject="Verify Your NEXVAULT Account",
+            html_content=email_html
+        )
+    except Exception as e:
+        logger.error(f"SMTP delivery failed during onboarding email verification: {str(e)}")
+        if not settings.COOKIE_SECURE:
+            print("[DEVELOPMENT ONLY FALLBACK] SMTP failed. Printing verification code in console:")
+            print("VERIFICATION CODE FOR USER:", email, "IS:", code)
+
 @router.post("/signup", response_model=UserSignupResponse, status_code=status.HTTP_201_CREATED)
 def create_user(user_in: UserCreate, db: Session = Depends(deps.get_db)):
     user = db.query(User).filter(User.email == user_in.email).first()
@@ -50,11 +94,20 @@ def create_user(user_in: UserCreate, db: Session = Depends(deps.get_db)):
         raise HTTPException(status_code=400, detail=str(e))
 
     recovery_code = generate_recovery_code()
+    
+    # Generate 6-digit email verification code
+    v_code = "".join(secrets.choice(string.digits) for _ in range(6))
+    v_code_hash = hashlib.sha256(v_code.encode()).hexdigest()
+    v_code_expires = datetime.now(timezone.utc) + timedelta(minutes=15)
+
     user_obj = User(
         email=user_in.email,
         full_name=user_in.full_name,
         hashed_password=get_password_hash(user_in.password),
         recovery_code_hash=get_password_hash(recovery_code),
+        is_verified=False,
+        verification_code_hash=v_code_hash,
+        verification_code_expires_at=v_code_expires
     )
     db.add(user_obj)
     db.flush()  # get user_obj.id
@@ -65,6 +118,9 @@ def create_user(user_in: UserCreate, db: Session = Depends(deps.get_db)):
 
     db.commit()
     db.refresh(user_obj)
+    
+    # Send verification email
+    send_verification_email(user_obj.email, v_code)
     
     # Attach dynamic field for single-use serialization
     user_obj.recovery_code = recovery_code
@@ -537,3 +593,153 @@ def export_user_data(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Unsupported export format. Supported formats are 'json' and 'csv'."
         )
+
+
+@router.get("/me/sessions")
+def get_user_sessions(
+    request: Request,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user)
+):
+    token = request.cookies.get("access_token")
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+
+    current_jti = None
+    if token:
+        try:
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+            current_jti = payload.get("jti")
+        except Exception:
+            pass
+
+    sessions = db.query(UserSession).filter(
+        UserSession.user_id == current_user.id,
+        UserSession.is_active == True
+    ).order_by(UserSession.last_active_at.desc()).all()
+
+    return [
+        {
+            "id": s.id,
+            "ip_address": s.ip_address,
+            "device_name": s.device_name,
+            "os_name": s.os_name,
+            "browser_name": s.browser_name,
+            "last_active_at": s.last_active_at,
+            "created_at": s.created_at,
+            "is_current": s.session_token == current_jti
+        }
+        for s in sessions
+    ]
+
+
+@router.delete("/me/sessions/{session_id}")
+def revoke_user_session(
+    session_id: str,
+    current_user: User = Depends(deps.get_current_user),
+    db: Session = Depends(deps.get_db)
+):
+    session_record = db.query(UserSession).filter(
+        UserSession.id == session_id,
+        UserSession.user_id == current_user.id
+    ).first()
+    if not session_record:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    session_record.is_active = False
+    db.commit()
+    return {"message": "Session revoked successfully"}
+
+
+@router.delete("/me/sessions")
+def revoke_all_other_sessions(
+    request: Request,
+    current_user: User = Depends(deps.get_current_user),
+    db: Session = Depends(deps.get_db)
+):
+    token = request.cookies.get("access_token")
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+
+    current_jti = None
+    if token:
+        try:
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+            current_jti = payload.get("jti")
+        except Exception:
+            pass
+
+    query = db.query(UserSession).filter(
+        UserSession.user_id == current_user.id,
+        UserSession.is_active == True
+    )
+    if current_jti:
+        query = query.filter(UserSession.session_token != current_jti)
+
+    other_sessions = query.all()
+    for s in other_sessions:
+        s.is_active = False
+        
+    db.commit()
+    return {"message": "All other sessions revoked successfully"}
+
+
+@router.post("/me/verify-email")
+@limiter.limit("5/minute")
+def verify_email(
+    request: Request,
+    payload: VerifyEmailRequest,
+    current_user: User = Depends(deps.get_current_user),
+    db: Session = Depends(deps.get_db)
+):
+    if current_user.is_verified:
+        return {"message": "Email is already verified."}
+        
+    if not current_user.verification_code_hash or not current_user.verification_code_expires_at:
+        raise HTTPException(status_code=400, detail="No verification code has been requested.")
+        
+    now = datetime.now(timezone.utc)
+    expires_at = current_user.verification_code_expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+        
+    if expires_at < now:
+        raise HTTPException(status_code=400, detail="Verification code has expired. Please request a new one.")
+        
+    input_hash = hashlib.sha256(payload.code.encode()).hexdigest()
+    if input_hash != current_user.verification_code_hash:
+        raise HTTPException(status_code=400, detail="Invalid verification code.")
+        
+    current_user.is_verified = True
+    current_user.verification_code_hash = None
+    current_user.verification_code_expires_at = None
+    db.commit()
+    
+    return {"message": "Email verified successfully."}
+
+
+@router.post("/me/resend-verification")
+@limiter.limit("3/minute")
+def resend_verification_email_endpoint(
+    request: Request,
+    current_user: User = Depends(deps.get_current_user),
+    db: Session = Depends(deps.get_db)
+):
+    if current_user.is_verified:
+        return {"message": "Email is already verified."}
+        
+    v_code = "".join(secrets.choice(string.digits) for _ in range(6))
+    v_code_hash = hashlib.sha256(v_code.encode()).hexdigest()
+    v_code_expires = datetime.now(timezone.utc) + timedelta(minutes=15)
+    
+    current_user.verification_code_hash = v_code_hash
+    current_user.verification_code_expires_at = v_code_expires
+    db.commit()
+    
+    send_verification_email(current_user.email, v_code)
+    
+    return {"message": "Verification code resent successfully."}

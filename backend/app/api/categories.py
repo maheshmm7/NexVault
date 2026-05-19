@@ -40,6 +40,35 @@ def delete_category(cat_id: str, db: Session = Depends(deps.get_db), current_use
     if not cat:
         raise HTTPException(status_code=404, detail="Category not found")
     
+    if cat.name.lower() == "others":
+        raise HTTPException(status_code=400, detail="Cannot delete default 'Others' category")
+
+    # Find or create a default 'Others' category of the same type for this user
+    default_cat = db.query(Category).filter(
+        Category.user_id == current_user.id,
+        Category.name == "Others",
+        Category.type == cat.type
+    ).first()
+
+    if not default_cat:
+        default_cat = Category(
+            name="Others",
+            type=cat.type,
+            color="#64748b",
+            icon="archive",
+            is_custom=False,
+            user_id=current_user.id
+        )
+        db.add(default_cat)
+        db.flush()
+
+    # Reassign transactions to default_cat
+    from app.models.transaction import Transaction
+    db.query(Transaction).filter(
+        Transaction.category_id == cat_id,
+        Transaction.user_id == current_user.id
+    ).update({Transaction.category_id: default_cat.id}, synchronize_session=False)
+
     db.delete(cat)
     db.commit()
     return {"message": "Category deleted successfully"}

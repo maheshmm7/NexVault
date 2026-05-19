@@ -6,63 +6,81 @@ const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [authState, setAuthState] = useState('loading'); // 'loading' | 'authenticated' | 'reconnecting' | 'unauthenticated'
   const { triggerSync } = useSettings();
 
   useEffect(() => {
+    let active = true;
     const initAuth = async () => {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setLoading(false);
+      const isAuth = localStorage.getItem('isAuthenticated');
+      if (!isAuth) {
+        if (active) {
+          setAuthState('unauthenticated');
+        }
         return;
       }
       try {
         const response = await api.get('/users/me');
-        setUser(response.data);
-        // Ensure settings/profile hydration completes fully before loading is set to false
-        await triggerSync();
+        if (active) {
+          setUser(response.data);
+          try {
+            await triggerSync();
+          } catch (syncError) {
+            console.warn("Failed to sync settings during initAuth:", syncError);
+          }
+          setAuthState('authenticated');
+        }
       } catch (error) {
+        if (!active) return;
         const isAuthError = error.response && (error.response.status === 401 || error.response.status === 403);
         if (isAuthError) {
-          localStorage.removeItem('token');
+          localStorage.removeItem('isAuthenticated');
           setUser(null);
+          setAuthState('unauthenticated');
         } else {
-          // Keep the token and log for debugging if it is a network drop or server cold start
-          console.warn("Auth initialization temporary connection failure (preserving local token):", error);
+          console.warn("Auth initialization temporary connection failure (preserving hydration state):", error);
+          setAuthState('reconnecting');
+          setTimeout(() => {
+            if (active) initAuth();
+          }, 3000);
         }
-      } finally {
-        setLoading(false);
       }
     };
     initAuth();
+    return () => {
+      active = false;
+    };
   }, [triggerSync]);
 
   const login = async (email, password) => {
-    setLoading(true);
+    setAuthState('loading');
     try {
       const formData = new URLSearchParams();
       formData.append('username', email); // OAuth2 expects username
       formData.append('password', password);
 
-      const response = await api.post('/auth/login', formData, {
+      await api.post('/auth/login', formData, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
       });
       
-      const token = response.data.access_token;
-      if (token) {
-        localStorage.setItem('token', token);
-      }
+      localStorage.setItem('isAuthenticated', 'true');
       
       const userResponse = await api.get('/users/me');
       setUser(userResponse.data);
-      await triggerSync(); // Immediately sync user settings upon login!
-    } finally {
-      setLoading(false);
+      try {
+        await triggerSync();
+      } catch (syncError) {
+        console.warn("Failed to sync settings upon login:", syncError);
+      }
+      setAuthState('authenticated');
+    } catch (err) {
+      setAuthState('unauthenticated');
+      throw err;
     }
   };
 
   const signup = async (email, password, fullName) => {
-    setLoading(true);
+    setAuthState('loading');
     try {
       const res = await api.post('/users/signup', {
         email,
@@ -74,7 +92,7 @@ export const AuthProvider = ({ children }) => {
       await login(email, password);
       return res.data;
     } catch (err) {
-      setLoading(false);
+      setAuthState('unauthenticated');
       throw err;
     }
   };
@@ -90,13 +108,25 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error("Session termination failed on server", error);
     } finally {
-      localStorage.removeItem('token');
+      localStorage.removeItem('isAuthenticated');
       setUser(null);
+      setAuthState('unauthenticated');
     }
   };
 
+  const refreshUser = async () => {
+    try {
+      const response = await api.get('/users/me');
+      setUser(response.data);
+    } catch (error) {
+      console.error("Failed to refresh user:", error);
+    }
+  };
+
+  const loading = authState === 'loading' || authState === 'reconnecting';
+
   return (
-    <AuthContext.Provider value={{ user, login, signup, logout, updateProfile, loading }}>
+    <AuthContext.Provider value={{ user, login, signup, logout, updateProfile, refreshUser, loading, authState }}>
       {children}
     </AuthContext.Provider>
   );

@@ -3,13 +3,16 @@ import { useAuth } from '../contexts/AuthContext';
 import LoadingScreen from './LoadingScreen';
 
 const ProtectedRoute = () => {
-  const { user, loading } = useAuth();
+  const { user, loading, authState } = useAuth();
 
   if (loading) {
-    return <LoadingScreen variant="full" message="Securing Session" />;
+    const message = authState === 'reconnecting'
+      ? 'Connection lost. Reconnecting to NEXVAULT secure infrastructure...'
+      : 'Securing Session';
+    return <LoadingScreen variant="full" message={message} />;
   }
 
-  if (!user) {
+  if (authState === 'unauthenticated' || !user) {
     return <Navigate to="/login" replace />;
   }
 

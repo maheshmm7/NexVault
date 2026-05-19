@@ -16,6 +16,8 @@ import { format } from 'date-fns';
 import { BRANDING } from '../config/branding';
 import LoadingScreen from '../components/LoadingScreen';
 import SafeChartContainer from '../components/charts/SafeChartContainer';
+import { SkeletonDashboard } from '../components/Skeleton';
+import ErrorState from '../components/ErrorState';
 
 const EMPTY_SUMMARY = {
   total_balance: 0, credit_used: 0, wallet_balance: 0,
@@ -146,6 +148,7 @@ export default function Dashboard() {
   const [insights,   setInsights]   = useState(null);
   const [bills,      setBills]      = useState([]);
   const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState(false);
 
   const { addToast } = useToast();
   const { currencySymbol, theme, dateTimePreferences } = useSettings();
@@ -158,6 +161,7 @@ export default function Dashboard() {
 
   const fetchAnalytics = useCallback(async () => {
     setLoading(true);
+    setError(false);
     try {
       const [summaryRes, catRes, trendRes, insightsRes, billsRes] = await Promise.all([
         api.get('/analytics/summary'),
@@ -171,12 +175,13 @@ export default function Dashboard() {
       setInsights(insightsRes.data);
       setBills(billsRes.data ?? []);
       const formattedTrends = (trendRes.data ?? []).map(item => ({
-        name: new Date(item.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+        name: new Date(item.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
         income: item.income ?? 0,
         expense: item.expense ?? 0,
       }));
       setTrends(formattedTrends);
     } catch {
+      setError(true);
       addToast('Failed to load dashboard analytics', 'error');
     } finally {
       setLoading(false);
@@ -201,6 +206,22 @@ export default function Dashboard() {
       setLoading(false);
     }
   };
+
+  if (loading) {
+    return <SkeletonDashboard />;
+  }
+
+  if (error) {
+    return (
+      <div className="py-10">
+        <ErrorState 
+          title="Dashboard Fetch Error" 
+          message="We couldn't connect to the analytics server. Check your network connection or try again." 
+          onRetry={fetchAnalytics} 
+        />
+      </div>
+    );
+  }
 
   const hasData = Object.values(summary).some(v => v !== 0);
   const fmt = val => `${currencySymbol}${Number(val ?? 0).toFixed(2)}`;
@@ -237,9 +258,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {loading ? (
-        <LoadingScreen variant="compact" message="Calculating positions..." />
-      ) : !hasData ? (
+      {!hasData ? (
         <EmptyState 
           variant="dashed"
           className="mt-6"

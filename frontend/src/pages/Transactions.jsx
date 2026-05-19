@@ -16,6 +16,8 @@ import PremiumDatePicker from '../components/PremiumDatePicker';
 import ExportMenu from '../components/ExportMenu';
 import { BRANDING } from '../config/branding';
 import LoadingScreen from '../components/LoadingScreen';
+import { SkeletonLedger } from '../components/Skeleton';
+import ErrorState from '../components/ErrorState';
 
 
 const EMPTY_FORM = {
@@ -55,6 +57,7 @@ export default function Transactions() {
   const [sources, setSources] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -108,16 +111,25 @@ export default function Transactions() {
   );
 
   const fetchData = async () => {
+    setLoading(true);
+    setError(false);
     try {
       const [txRes, srcRes, catRes] = await Promise.all([
         api.get('/transactions'),
         api.get('/sources'),
         api.get('/categories'),
       ]);
-      setTransactions([...txRes.data].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)));
+      setTransactions([...txRes.data].sort((a, b) => {
+        const timeDiff = new Date(b.timestamp) - new Date(a.timestamp);
+        if (timeDiff !== 0) return timeDiff;
+        const createdDiff = new Date(b.created_at) - new Date(a.created_at);
+        if (createdDiff !== 0) return createdDiff;
+        return b.id.localeCompare(a.id);
+      }));
       setSources(srcRes.data);
       setCategories(catRes.data);
     } catch {
+      setError(true);
       addToast('Failed to load data', 'error');
     } finally {
       setLoading(false);
@@ -503,7 +515,15 @@ export default function Transactions() {
       {/* Table */}
       <div className="card overflow-hidden" style={{ background: 'var(--surface)' }}>
         {loading ? (
-          <LoadingScreen variant="compact" message="Fetching ledger..." />
+          <SkeletonLedger />
+        ) : error ? (
+          <div className="p-6">
+            <ErrorState 
+              title="Ledger Loading Failed" 
+              message="Failed to connect to the transaction ledger database. Check your network or retry below." 
+              onRetry={fetchData} 
+            />
+          </div>
         ) : filteredTransactions.length === 0 ? (
 
           <EmptyState 

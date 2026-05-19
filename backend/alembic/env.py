@@ -25,6 +25,8 @@ from app.models.category import Category # noqa
 from app.models.source import PaymentSource # noqa
 from app.models.transaction import Transaction # noqa
 from app.models.coupon import Coupon # noqa
+from app.models.session import UserSession # noqa
+from app.models.notification import Notification # noqa
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

@@ -3,11 +3,19 @@ from sqlalchemy import func
 from app.models.transaction import Transaction
 from app.models.source import PaymentSource
 from app.models.category import Category
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from dateutil.relativedelta import relativedelta
 
 
-def get_dashboard_summary(db: Session, user_id: str) -> dict:
+def get_zone_info(tz_name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(tz_name)
+    except Exception:
+        return ZoneInfo("UTC")
+
+
+def get_dashboard_summary(db: Session, user_id: str, tz_name: str = "UTC") -> dict:
     sources = db.query(PaymentSource).filter(PaymentSource.user_id == user_id).all()
 
     total_balance = 0.0
@@ -30,13 +38,16 @@ def get_dashboard_summary(db: Session, user_id: str) -> dict:
         else:
             total_balance += bal
 
-    first_day_of_month = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    tz = get_zone_info(tz_name)
+    local_now = datetime.now(tz)
+    first_day_of_month = local_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    first_day_of_month_utc = first_day_of_month.astimezone(timezone.utc)
 
     monthly_stats = db.query(
         Transaction.type, func.sum(Transaction.amount)
     ).filter(
         Transaction.user_id == user_id,
-        Transaction.timestamp >= first_day_of_month
+        Transaction.timestamp >= first_day_of_month_utc
     ).group_by(Transaction.type).all()
 
     stats_dict = {t: float(amount) for t, amount in monthly_stats}
@@ -54,8 +65,11 @@ def get_dashboard_summary(db: Session, user_id: str) -> dict:
     }
 
 
-def get_category_distribution(db: Session, user_id: str) -> list:
-    first_day_of_month = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+def get_category_distribution(db: Session, user_id: str, tz_name: str = "UTC") -> list:
+    tz = get_zone_info(tz_name)
+    local_now = datetime.now(tz)
+    first_day_of_month = local_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    first_day_of_month_utc = first_day_of_month.astimezone(timezone.utc)
 
     results = db.query(
         Category.name,
@@ -66,42 +80,41 @@ def get_category_distribution(db: Session, user_id: str) -> list:
     ).filter(
         Transaction.user_id == user_id,
         Transaction.type == "expense",
-        Transaction.timestamp >= first_day_of_month
+        Transaction.timestamp >= first_day_of_month_utc
     ).group_by(Category.name, Category.color).all()
 
     return [{"name": r.name, "color": r.color, "value": float(r.total)} for r in results]
 
 
-def get_spending_trends(db: Session, user_id: str) -> list:
-    # Runtime engine dialect detection for dynamic database portability
-    bind = db.get_bind()
-    if bind.dialect.name == "postgresql":
-        day_expr = func.to_char(Transaction.timestamp, "YYYY-MM-DD")
-    else:
-        day_expr = func.strftime("%Y-%m-%d", Transaction.timestamp)
-
-    results = db.query(
-        day_expr.label("day"),
-        Transaction.type,
-        func.sum(Transaction.amount).label("total"),
-    ).filter(
+def get_spending_trends(db: Session, user_id: str, tz_name: str = "UTC") -> list:
+    # Query all user transactions in UTC
+    transactions = db.query(Transaction).filter(
         Transaction.user_id == user_id
-    ).group_by(day_expr, Transaction.type).order_by(day_expr).all()
+    ).all()
 
+    tz = get_zone_info(tz_name)
     trends: dict = {}
-    for row in results:
-        day_str = str(row.day)
+    
+    for tx in transactions:
+        tx_time = tx.timestamp
+        if tx_time.tzinfo is None:
+            tx_time = tx_time.replace(tzinfo=timezone.utc)
+        
+        # Convert UTC timestamp to user local timezone
+        local_dt = tx_time.astimezone(tz)
+        day_str = local_dt.strftime("%Y-%m-%d")
+        
         if day_str not in trends:
             trends[day_str] = {"date": day_str, "income": 0.0, "expense": 0.0}
-        if row.type in ("income", "expense"):
-            trends[day_str][row.type] = float(row.total)
+        
+        if tx.type in ("income", "expense"):
+            trends[day_str][tx.type] += float(tx.amount)
 
-    return list(trends.values())
+    # Return sorted by date
+    return sorted(trends.values(), key=lambda x: x["date"])
 
 
-# ─── Phase 2 Analytics ────────────────────────────────────────────────────────
-
-def get_bills(db: Session, user_id: str) -> list:
+def get_bills(db: Session, user_id: str, tz_name: str = "UTC") -> list:
     """Upcoming credit card due dates with status indicators."""
     sources = db.query(PaymentSource).filter(
         PaymentSource.user_id == user_id,
@@ -109,7 +122,8 @@ def get_bills(db: Session, user_id: str) -> list:
     ).all()
 
     bills = []
-    today = datetime.now().date()
+    tz = get_zone_info(tz_name)
+    today = datetime.now(tz).date()
 
     for src in sources:
         if not src.due_date:
@@ -151,11 +165,16 @@ def get_bills(db: Session, user_id: str) -> list:
     return bills
 
 
-def get_insights(db: Session, user_id: str) -> dict:
+def get_insights(db: Session, user_id: str, tz_name: str = "UTC") -> dict:
     """Smart financial insights: MoM change, top category, credit utilization, savings rate."""
-    now = datetime.now()
-    this_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    tz = get_zone_info(tz_name)
+    local_now = datetime.now(tz)
+    this_month_start = local_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     last_month_start = this_month_start - relativedelta(months=1)
+    
+    this_month_start_utc = this_month_start.astimezone(timezone.utc)
+    last_month_start_utc = last_month_start.astimezone(timezone.utc)
+    local_now_utc = local_now.astimezone(timezone.utc)
 
     def monthly_total(type_: str, start, end):
         result = db.query(func.sum(Transaction.amount)).filter(
@@ -166,9 +185,9 @@ def get_insights(db: Session, user_id: str) -> dict:
         ).scalar()
         return float(result or 0)
 
-    this_expense = monthly_total("expense", this_month_start, now)
-    last_expense  = monthly_total("expense", last_month_start, this_month_start)
-    this_income   = monthly_total("income",  this_month_start, now)
+    this_expense = monthly_total("expense", this_month_start_utc, local_now_utc)
+    last_expense  = monthly_total("expense", last_month_start_utc, this_month_start_utc)
+    this_income   = monthly_total("income",  this_month_start_utc, local_now_utc)
 
     mom_change = round(((this_expense - last_expense) / last_expense) * 100, 1) if last_expense > 0 else 0.0
 
@@ -177,7 +196,7 @@ def get_insights(db: Session, user_id: str) -> dict:
     ).join(Transaction, Transaction.category_id == Category.id).filter(
         Transaction.user_id == user_id,
         Transaction.type == "expense",
-        Transaction.timestamp >= this_month_start,
+        Transaction.timestamp >= this_month_start_utc,
     ).group_by(Category.name, Category.color).order_by(func.sum(Transaction.amount).desc()).first()
 
     cards = db.query(PaymentSource).filter(
@@ -190,7 +209,7 @@ def get_insights(db: Session, user_id: str) -> dict:
         avail = float(c.available_limit or 0)
         if limit > 0:
             utilizations.append((limit - avail) / limit * 100)
-    avg_utilization = round(sum(utilizations) / len(utilizations), 1) if utilizations else 0.0
+    avg_credit_utilization = round(sum(utilizations) / len(utilizations), 1) if utilizations else 0.0
 
     savings_rate = round(((this_income - this_expense) / this_income * 100), 1) if this_income > 0 else 0.0
 
@@ -200,33 +219,37 @@ def get_insights(db: Session, user_id: str) -> dict:
         "last_month_expense": last_expense,
         "this_month_income": this_income,
         "top_category": {"name": top_cat.name, "color": top_cat.color, "total": float(top_cat.total)} if top_cat else None,
-        "avg_credit_utilization": avg_utilization,
+        "avg_credit_utilization": avg_credit_utilization,
         "savings_rate": savings_rate,
     }
 
 
-def get_monthly_comparison(db: Session, user_id: str) -> list:
+def get_monthly_comparison(db: Session, user_id: str, tz_name: str = "UTC") -> list:
     """Income vs expense totals for the last 6 calendar months."""
-    now = datetime.now()
+    tz = get_zone_info(tz_name)
+    local_now = datetime.now(tz)
     results = []
 
     for i in range(5, -1, -1):
-        month_start = (now.replace(day=1) - relativedelta(months=i)).replace(
+        local_month_start = (local_now.replace(day=1) - relativedelta(months=i)).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
-        month_end = month_start + relativedelta(months=1)
+        local_month_end = local_month_start + relativedelta(months=1)
+        
+        start_utc = local_month_start.astimezone(timezone.utc)
+        end_utc = local_month_end.astimezone(timezone.utc)
 
         rows = db.query(
             Transaction.type, func.sum(Transaction.amount)
         ).filter(
             Transaction.user_id == user_id,
-            Transaction.timestamp >= month_start,
-            Transaction.timestamp < month_end,
+            Transaction.timestamp >= start_utc,
+            Transaction.timestamp < end_utc,
         ).group_by(Transaction.type).all()
 
         stats = {t: float(a) for t, a in rows}
         results.append({
-            "month": month_start.strftime("%b %Y"),
+            "month": local_month_start.strftime("%b %Y"),
             "income": stats.get("income", 0.0),
             "expense": stats.get("expense", 0.0),
         })
@@ -234,19 +257,22 @@ def get_monthly_comparison(db: Session, user_id: str) -> list:
     return results
 
 
-def get_category_trends(db: Session, user_id: str) -> dict:
+def get_category_trends(db: Session, user_id: str, tz_name: str = "UTC") -> dict:
     """Top-5 expense categories with monthly totals for the last 3 months."""
-    now = datetime.now()
-    three_months_ago = (now.replace(day=1) - relativedelta(months=3)).replace(
+    tz = get_zone_info(tz_name)
+    local_now = datetime.now(tz)
+    
+    local_three_months_ago = (local_now.replace(day=1) - relativedelta(months=3)).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
+    three_months_ago_utc = local_three_months_ago.astimezone(timezone.utc)
 
     top_cats = db.query(
         Category.name, Category.color, func.sum(Transaction.amount).label("total")
     ).join(Transaction, Transaction.category_id == Category.id).filter(
         Transaction.user_id == user_id,
         Transaction.type == "expense",
-        Transaction.timestamp >= three_months_ago,
+        Transaction.timestamp >= three_months_ago_utc,
     ).group_by(Category.name, Category.color).order_by(
         func.sum(Transaction.amount).desc()
     ).limit(5).all()
@@ -255,23 +281,26 @@ def get_category_trends(db: Session, user_id: str) -> dict:
 
     monthly_data = []
     for i in range(2, -1, -1):
-        month_start = (now.replace(day=1) - relativedelta(months=i)).replace(
+        local_month_start = (local_now.replace(day=1) - relativedelta(months=i)).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
-        month_end = month_start + relativedelta(months=1)
+        local_month_end = local_month_start + relativedelta(months=1)
+        
+        start_utc = local_month_start.astimezone(timezone.utc)
+        end_utc = local_month_end.astimezone(timezone.utc)
 
         rows = db.query(
             Category.name, func.sum(Transaction.amount).label("total")
         ).join(Transaction, Transaction.category_id == Category.id).filter(
             Transaction.user_id == user_id,
             Transaction.type == "expense",
-            Transaction.timestamp >= month_start,
-            Transaction.timestamp < month_end,
+            Transaction.timestamp >= start_utc,
+            Transaction.timestamp < end_utc,
             Category.name.in_(cat_names),
         ).group_by(Category.name).all()
 
         row_dict = {r.name: float(r.total) for r in rows}
-        entry = {"month": month_start.strftime("%b %Y")}
+        entry = {"month": local_month_start.strftime("%b %Y")}
         for name in cat_names:
             entry[name] = row_dict.get(name, 0.0)
         monthly_data.append(entry)
@@ -282,7 +311,7 @@ def get_category_trends(db: Session, user_id: str) -> dict:
     }
 
 
-def get_credit_utilization(db: Session, user_id: str) -> list:
+def get_credit_utilization(db: Session, user_id: str, tz_name: str = "UTC") -> list:
     """Per-card credit utilization breakdown."""
     cards = db.query(PaymentSource).filter(
         PaymentSource.user_id == user_id,

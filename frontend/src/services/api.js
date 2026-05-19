@@ -6,12 +6,13 @@ const api = axios.create({
   withCredentials: true,  // Instructs Axios to transmit session cookies on all cross-origin requests
 });
 
-// Automatically inject JWT Bearer token into headers if stored in localStorage
+// Request interceptor to attach dynamic configuration (if needed)
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    // Automatically detect and attach the browser timezone to every request header
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (tz) {
+      config.headers['X-User-Timezone'] = tz;
     }
     return config;
   },

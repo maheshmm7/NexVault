@@ -1,71 +1,81 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { useAuth } from './AuthContext';
+import api from '../services/api';
 
 const NotificationCenterContext = createContext(null);
-
-const MAX_NOTIFICATIONS = 50;
 
 export function NotificationCenterProvider({ children }) {
   const { user } = useAuth();
   const [notifications, setNotifications] = useState([]);
 
-  // Dynamically partition browser notifications based on the authenticated user ID
-  const storageKey = user ? `notificationInbox_${user.id}` : 'notificationInbox';
+  // Fetch from DB
+  const fetchNotifications = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await api.get('/notifications');
+      const mapped = res.data.map(n => ({
+        id: n.id,
+        type: n.type,
+        title: n.title,
+        message: n.message,
+        timestamp: n.created_at,
+        isRead: n.is_read
+      }));
+      setNotifications(mapped);
+    } catch (err) {
+      console.error("Failed to fetch notifications:", err);
+    }
+  }, [user]);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      setNotifications(raw ? JSON.parse(raw) : []);
-    } catch {
+    if (user) {
+      fetchNotifications();
+      const interval = setInterval(fetchNotifications, 15000);
+      return () => clearInterval(interval);
+    } else {
       setNotifications([]);
     }
-  }, [storageKey]);
+  }, [user, fetchNotifications]);
 
-  const addNotification = useCallback(({ type, title, message }) => {
-    const entry = {
-      id: Date.now().toString(),
-      type: type || 'info',
-      title,
-      message,
-      timestamp: new Date().toISOString(),
-      isRead: false,
-    };
-
-    setNotifications(prev => {
-      const updated = [entry, ...prev].slice(0, MAX_NOTIFICATIONS);
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(updated));
-      } catch {}
-      return updated;
-    });
-  }, [storageKey]);
-
-  const markAsRead = useCallback((id) => {
-    setNotifications(prev => {
-      const updated = prev.map(n => n.id === id ? { ...n, isRead: true } : n);
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(updated));
-      } catch {}
-      return updated;
-    });
-  }, [storageKey]);
-
-  const markAllAsRead = useCallback(() => {
-    setNotifications(prev => {
-      const updated = prev.map(n => ({ ...n, isRead: true }));
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(updated));
-      } catch {}
-      return updated;
-    });
-  }, [storageKey]);
-
-  const clearAll = useCallback(() => {
-    setNotifications([]);
+  const addNotification = useCallback(async ({ type, title, message }) => {
+    if (!user) return;
     try {
-      localStorage.removeItem(storageKey);
-    } catch {}
-  }, [storageKey]);
+      await api.post('/notifications', { type, title, message });
+      await fetchNotifications();
+    } catch (err) {
+      console.error("Failed to add notification:", err);
+    }
+  }, [user, fetchNotifications]);
+
+  const markAsRead = useCallback(async (id) => {
+    if (!user) return;
+    try {
+      await api.put(`/notifications/${id}/read`);
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+    } catch (err) {
+      console.error("Failed to mark notification read:", err);
+    }
+  }, [user]);
+
+  const markAllAsRead = useCallback(async () => {
+    if (!user) return;
+    try {
+      await api.put('/notifications/read-all');
+      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+    } catch (err) {
+      console.error("Failed to mark all notifications read:", err);
+    }
+  }, [user]);
+
+  const clearAll = useCallback(async () => {
+    if (!user) return;
+    try {
+      await api.delete('/notifications');
+      setNotifications([]);
+    } catch (err) {
+      console.error("Failed to clear notifications:", err);
+    }
+  }, [user]);
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
@@ -78,6 +88,7 @@ export function NotificationCenterProvider({ children }) {
         markAllAsRead,
         clearAll,
         unreadCount,
+        refresh: fetchNotifications
       }}
     >
       {children}

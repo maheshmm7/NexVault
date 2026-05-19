@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, Any, Dict
 from datetime import datetime
 
@@ -25,7 +25,14 @@ class UserUpdate(BaseModel):
 
 class UserResponse(UserBase):
     id: str
+    is_verified: bool = False
     created_at: datetime
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def validate_dates(cls, v):
+        from app.schemas.utils import ensure_utc
+        return ensure_utc(v)
 
     class Config:
         from_attributes = True
@@ -68,3 +75,7 @@ class RecoverAccountRequest(BaseModel):
 
 class RegenerateRecoveryCodeRequest(BaseModel):
     password: str
+
+
+class VerifyEmailRequest(BaseModel):
+    code: str

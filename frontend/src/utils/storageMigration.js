@@ -35,8 +35,8 @@ export const migrateStorage = () => {
           lowerKey.includes('auth') || 
           lowerKey.includes('bearer')
         ) {
-          // Keep the primary auth token and scan tokens
-          if (k !== 'token' && !k.includes('_scan_token_')) {
+          // Keep the primary auth token, isAuthenticated status, and scan tokens
+          if (k !== 'token' && k !== 'isAuthenticated' && !k.includes('_scan_token_')) {
             localStorage.removeItem(k);
           }
         }
@@ -55,8 +55,8 @@ export const migrateStorage = () => {
           lowerKey.includes('auth') || 
           lowerKey.includes('bearer')
         ) {
-          // Keep the primary auth token and scan tokens
-          if (k !== 'token' && !k.includes('_scan_token_')) {
+          // Keep the primary auth token, isAuthenticated status, and scan tokens
+          if (k !== 'token' && k !== 'isAuthenticated' && !k.includes('_scan_token_')) {
             sessionStorage.removeItem(k);
           }
         }

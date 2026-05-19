@@ -7,21 +7,58 @@ import logging
 from app.utils.email import send_smtp_email
 
 logger = logging.getLogger("app.api.auth")
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from app.api import deps
 from app.core import security
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.models.user import User
 from app.schemas.token import Token
 from app.schemas.user import ForgotPasswordRequest, ResetPasswordRequest, RecoverAccountRequest, RegenerateRecoveryCodeRequest
+
+import uuid
+from jose import jwt
+from app.models.session import UserSession
+
+def parse_user_agent(ua_string: str):
+    os_name = "Unknown OS"
+    browser_name = "Unknown Browser"
+    device_name = "Desktop"
+    if not ua_string:
+        return os_name, browser_name, device_name
+    if "Windows" in ua_string:
+        os_name = "Windows"
+    elif "Macintosh" in ua_string or "Mac OS" in ua_string:
+        os_name = "macOS"
+    elif "iPhone" in ua_string:
+        os_name = "iOS"
+        device_name = "iPhone"
+    elif "iPad" in ua_string:
+        os_name = "iPadOS"
+        device_name = "iPad"
+    elif "Android" in ua_string:
+        os_name = "Android"
+        device_name = "Android Device"
+    elif "Linux" in ua_string:
+        os_name = "Linux"
+    if "Edg" in ua_string:
+        browser_name = "Edge"
+    elif "Chrome" in ua_string or "CriOS" in ua_string:
+        browser_name = "Chrome"
+    elif "Firefox" in ua_string or "FxiOS" in ua_string:
+        browser_name = "Firefox"
+    elif "Safari" in ua_string and "Chrome" not in ua_string:
+        browser_name = "Safari"
+    return os_name, browser_name, device_name
 
 router = APIRouter()
 
 @router.post("/login", response_model=Token)
 def login_access_token(
     response: Response,
+    request: Request,
     db: Session = Depends(deps.get_db),
     form_data: OAuth2PasswordRequestForm = Depends()
 ):
@@ -29,10 +66,28 @@ def login_access_token(
     if not user or not security.verify_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=400, detail="Incorrect email or password")
     
+    jti = str(uuid.uuid4())
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     token = security.create_access_token(
-        user.id, expires_delta=access_token_expires
+        user.id, expires_delta=access_token_expires, jti=jti
     )
+    
+    # Parse client metadata
+    ua_string = request.headers.get("User-Agent", "Unknown")
+    os_name, browser_name, device_name = parse_user_agent(ua_string)
+    
+    session_record = UserSession(
+        user_id=user.id,
+        session_token=jti,
+        ip_address=request.client.host if request.client else None,
+        user_agent=ua_string,
+        device_name=device_name,
+        os_name=os_name,
+        browser_name=browser_name,
+        is_active=True
+    )
+    db.add(session_record)
+    db.commit()
     
     # ─── HTTPOnly Secure Cookie Injection ─────────────────────────────────────
     response.set_cookie(
@@ -51,7 +106,31 @@ def login_access_token(
     }
 
 @router.post("/logout")
-def logout(response: Response):
+def logout(
+    response: Response,
+    request: Request,
+    db: Session = Depends(deps.get_db)
+):
+    token = request.cookies.get("access_token")
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+            
+    if token:
+        try:
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+            jti = payload.get("jti")
+            if jti:
+                session_record = db.query(UserSession).filter(
+                    UserSession.session_token == jti
+                ).first()
+                if session_record:
+                    session_record.is_active = False
+                    db.commit()
+        except Exception:
+            pass
+            
     # ─── Terminate Session & Expire Auth Cookie ──────────────────────────────
     response.delete_cookie(
         key="access_token",
@@ -135,8 +214,10 @@ def process_password_reset_flow(db: Session, email: str) -> None:
 
 
 @router.post("/forgot-password")
+@limiter.limit("5/minute")
 def forgot_password(
     payload: ForgotPasswordRequest,
+    request: Request,
     db: Session = Depends(deps.get_db)
 ):
     # Always return a success response to prevent user enumeration attacks
@@ -193,8 +274,10 @@ def reset_password(
 
 
 @router.post("/recover-account")
+@limiter.limit("5/minute")
 def recover_account(
     payload: RecoverAccountRequest,
+    request: Request,
     db: Session = Depends(deps.get_db)
 ):
     """
@@ -208,7 +291,7 @@ def recover_account(
     - Attempt counting checks can be bound to IP/email keys in Redis/DB
     """
     # ─── Throttling & Abuse Prevention Hook ──────────────────────────────
-    # TODO: Implement rate limiting middleware decorator here, e.g. @limiter.limit("5/minute")
+    # Implemented via @limiter.limit("5/minute")
     
     try:
         security.validate_password_strength(payload.new_password)
@@ -249,8 +332,10 @@ def recover_account(
 
 
 @router.post("/regenerate-recovery-code")
+@limiter.limit("5/minute")
 def regenerate_recovery_code(
     payload: RegenerateRecoveryCodeRequest,
+    request: Request,
     current_user: User = Depends(deps.get_current_user),
     db: Session = Depends(deps.get_db)
 ):

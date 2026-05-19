@@ -14,6 +14,7 @@ dayjs.extend(relativeTime);
 
 import PremiumDatePicker from '../components/PremiumDatePicker';
 import LoadingScreen from '../components/LoadingScreen';
+import ErrorState from '../components/ErrorState';
 
 
 const typeConfig = {
@@ -34,6 +35,7 @@ export default function Accounts() {
   const [accounts, setAccounts] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -130,6 +132,8 @@ export default function Accounts() {
   }, [accounts, transactions]);
 
   const fetchAccounts = async () => {
+    setLoading(true);
+    setError(false);
     try {
       const [sourcesRes, txRes] = await Promise.all([
         api.get('/sources'),
@@ -138,6 +142,7 @@ export default function Accounts() {
       setAccounts(sourcesRes.data);
       setTransactions(txRes.data);
     } catch (err) {
+      setError(true);
       addToast('Failed to load account data', 'error');
     } finally {
       setLoading(false);
@@ -346,7 +351,17 @@ export default function Accounts() {
 
 
       {loading ? (
-        <LoadingScreen variant="compact" message="Auditing account balances..." />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <SkeletonCard type="simple" />
+          <SkeletonCard type="simple" />
+          <SkeletonCard type="credit" />
+        </div>
+      ) : error ? (
+        <ErrorState 
+          title="Account Loading Failed" 
+          message="Failed to connect to the financial ledger server. Check your connection or retry below." 
+          onRetry={fetchAccounts} 
+        />
       ) : accounts.length === 0 ? (
 
         <EmptyState 

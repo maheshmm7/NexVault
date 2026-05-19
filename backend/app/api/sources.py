@@ -103,6 +103,10 @@ def delete_source(source_id: str, db: Session = Depends(deps.get_db), current_us
     if not source:
         raise HTTPException(status_code=404, detail="Payment source not found")
     
+    # Cascade delete all transactions associated with this source
+    from app.models.transaction import Transaction
+    db.query(Transaction).filter(Transaction.source_id == source_id, Transaction.user_id == current_user.id).delete(synchronize_session=False)
+
     db.delete(source)
     db.commit()
     return {"message": "Payment source deleted successfully"}

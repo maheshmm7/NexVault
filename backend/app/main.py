@@ -2,13 +2,17 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
-from app.api import auth, users, categories, sources, transactions, coupons, analytics
+from app.api import auth, users, categories, sources, transactions, coupons, analytics, notifications
 from app.core.config import settings
+from app.core.rate_limit import limiter
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 # Configure production logging layout
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("nexvault")
 
+# Triggering hot reload to load tzdata dependency
 logger.info("Initializing NEXVAULT Production API Gateway...")
 logger.info(f"PROJECT: {settings.PROJECT_NAME}")
 logger.info(f"API PREFIX: {settings.API_V1_STR}")
@@ -42,6 +46,9 @@ else:
 
 app = FastAPI(title=settings.PROJECT_NAME)
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # Respect proxy forwarding (Railway runs behind Cloudflare/reverse proxy load balancers)
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
@@ -65,6 +72,7 @@ app.include_router(sources.router, prefix=f"{settings.API_V1_STR}/sources", tags
 app.include_router(transactions.router, prefix=f"{settings.API_V1_STR}/transactions", tags=["transactions"])
 app.include_router(coupons.router, prefix=f"{settings.API_V1_STR}/coupons", tags=["coupons"])
 app.include_router(analytics.router, prefix=f"{settings.API_V1_STR}/analytics", tags=["analytics"])
+app.include_router(notifications.router, prefix=f"{settings.API_V1_STR}/notifications", tags=["notifications"])
 
 @app.get("/")
 def root():

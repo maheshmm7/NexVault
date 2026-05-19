@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, Text
+from sqlalchemy import Column, String, DateTime, Text, Boolean
 from sqlalchemy.sql import func
 from app.db.database import Base
 
@@ -16,5 +16,8 @@ class User(Base):
     reset_token_hash = Column(String, nullable=True)
     reset_token_expires_at = Column(DateTime(timezone=True), nullable=True)
     recovery_code_hash = Column(String, nullable=True)
+    is_verified = Column(Boolean, default=False, nullable=False)
+    verification_code_hash = Column(String, nullable=True)
+    verification_code_expires_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

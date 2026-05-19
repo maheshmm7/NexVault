@@ -5,9 +5,13 @@ import Topbar from './Topbar';
 import CommandPalette from '../components/CommandPalette';
 import useNotificationScanner from '../hooks/useNotificationScanner';
 import { BRANDING } from '../config/branding';
+import { useAuth } from '../contexts/AuthContext';
+import EmailVerificationModal from '../components/EmailVerificationModal';
 
 export default function DashboardLayout() {
+  const { user } = useAuth();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [isVerifyModalOpen, setIsVerifyModalOpen] = useState(false);
 
   // Initialize the background scanner to check for alerts on dashboard load
   useNotificationScanner();
@@ -50,6 +54,21 @@ export default function DashboardLayout() {
           <Topbar onMenuClick={() => setMobileSidebarOpen(true)} />
         </div>
 
+        {user && !user.is_verified && (
+          <div className="bg-amber-500/10 border-b border-amber-500/20 px-6 py-2.5 flex items-center justify-between text-xs text-amber-400 shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+              <span>Your account email is unverified. Please verify your email to ensure account security.</span>
+            </div>
+            <button
+              onClick={() => setIsVerifyModalOpen(true)}
+              className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold rounded-lg transition-all"
+            >
+              Verify Now
+            </button>
+          </div>
+        )}
+
         <main className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth">
           <div className="content-max-w relative">
             <Outlet />
@@ -59,6 +78,9 @@ export default function DashboardLayout() {
 
       {/* Global Command Palette — rendered outside main scroll area */}
       <CommandPalette onAction={handlePaletteAction} />
+      
+      {/* Email Verification Code Modal */}
+      <EmailVerificationModal isOpen={isVerifyModalOpen} onClose={() => setIsVerifyModalOpen(false)} />
     </div>
   );
 }

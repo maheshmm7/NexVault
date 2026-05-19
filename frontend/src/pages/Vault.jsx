@@ -3,7 +3,7 @@ import { Plus, Tag, Copy, Eye, EyeOff, Trash2, AlertCircle, Check, Calendar, Tic
 import api from '../services/api';
 import Modal from '../components/Modal';
 import EmptyState from '../components/EmptyState';
-import { SkeletonCard } from '../components/Skeleton';
+import { SkeletonCard, SkeletonVault } from '../components/Skeleton';
 import CustomSelect from '../components/CustomSelect';
 import { useToast } from '../contexts/ToastContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -11,6 +11,7 @@ import { format, isBefore, addDays } from 'date-fns';
 import PremiumDatePicker from '../components/PremiumDatePicker';
 import { BRANDING } from '../config/branding';
 import LoadingScreen from '../components/LoadingScreen';
+import ErrorState from '../components/ErrorState';
 
 
 const STATUS_COLORS = {
@@ -26,6 +27,7 @@ export default function Vault() {
   const dFormat = dateTimePreferences?.dateFormat || 'dd/MM/yyyy';
   const [coupons, setCoupons]         = useState([]);
   const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId]     = useState(null);
   const [showPin, setShowPin]         = useState({});
@@ -36,11 +38,13 @@ export default function Vault() {
 
   const fetchCoupons = async () => {
     setLoading(true);
+    setError(false);
     try {
       // Fetch all coupons and handle dynamic status filtering client-side for maximum reliability
       const res = await api.get('/coupons/');
       setCoupons(res.data);
     } catch {
+      setError(true);
       addToast('Failed to load coupons', 'error');
     } finally {
       setLoading(false);
@@ -255,7 +259,13 @@ export default function Vault() {
 
       {/* Grid */}
       {loading ? (
-        <LoadingScreen variant="compact" message="Accessing secure vault..." />
+        <SkeletonVault />
+      ) : error ? (
+        <ErrorState 
+          title="Vault Access Error" 
+          message="Failed to connect to the secure vault database. Check your connection or retry below." 
+          onRetry={fetchCoupons} 
+        />
       ) : filteredCoupons.length === 0 ? (
 
         <EmptyState 

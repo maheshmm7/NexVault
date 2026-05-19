@@ -51,7 +51,32 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
         )
+    
+    from app.models.session import UserSession
+    from datetime import datetime, timezone
+    
+    jti = payload.get("jti")
+    if jti:
+        session_record = db.query(UserSession).filter(UserSession.session_token == jti).first()
+        if not session_record or not session_record.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session has been terminated or is invalid",
+            )
+        # Update last active timestamp
+        session_record.last_active_at = datetime.now(timezone.utc)
+        db.commit()
+        
     user = db.query(User).filter(User.id == token_data.sub).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
+
+def get_user_timezone(request: Request) -> str:
+    tz = request.headers.get("X-User-Timezone") or "UTC"
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    try:
+        ZoneInfo(tz)
+        return tz
+    except (ZoneInfoNotFoundError, ValueError, TypeError):
+        return "UTC"
