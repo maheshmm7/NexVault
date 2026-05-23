@@ -1,0 +1,16 @@
+# Ignore all documentation markdown files
+*.md
+docs/
+archive/
+
+# Ignore local database cache files
+*.db
+*.sqlite
+
+# Ignore test suites and cache directories
+tests/
+testsprite_tests/
+.pytest_cache/
+
+# Ignore developer scratch directory
+scratch/
