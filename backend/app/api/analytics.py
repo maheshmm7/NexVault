@@ -79,3 +79,11 @@ def get_credit_utilization(
     timezone: str = Depends(deps.get_user_timezone)
 ):
     return analytics_service.get_credit_utilization(db=db, user_id=current_user.id, tz_name=timezone)
+
+@router.get("/emi-analytics")
+def get_emi_analytics(
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+    timezone: str = Depends(deps.get_user_timezone)
+):
+    return analytics_service.get_emi_analytics(db=db, user_id=current_user.id, tz_name=timezone)

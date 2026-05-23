@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, Numeric, ForeignKey, Boolean
+from sqlalchemy import Column, String, DateTime, Numeric, ForeignKey, Boolean, Integer
 from sqlalchemy.sql import func
 from app.db.database import Base
 
@@ -17,14 +17,20 @@ class PaymentSource(Base):
     is_demo = Column(Boolean, default=False, nullable=False)
 
     # Credit card specific
-    credit_limit = Column(Numeric(precision=12, scale=2), nullable=True)
+    credit_limit = Column(Numeric(precision=12, scale=2), nullable=True) # Bank approved limit
+    card_ceiling_limit = Column(Numeric(precision=12, scale=2), nullable=True) # Operational limit
     available_limit = Column(Numeric(precision=12, scale=2), nullable=True)
     billing_date = Column(String, nullable=True)   # stored as YYYY-MM-DD string
     due_date = Column(String, nullable=True)        # stored as YYYY-MM-DD string
+    statement_day = Column(Integer, default=1, nullable=True)
+    due_day = Column(Integer, default=20, nullable=True)
     network = Column(String, nullable=True)         # visa / mastercard / rupay / amex
+    credit_pool_id = Column(String(36), ForeignKey("credit_pools.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # Shared card fields
     account_number_last4 = Column(String(4), nullable=True)
+    card_outstanding = Column(Numeric(precision=12, scale=2), default=0.00, nullable=True)
+    shared_group_id = Column(String(36), nullable=True, index=True)
 
     # Bank / debit card
     bank_name = Column(String, nullable=True)

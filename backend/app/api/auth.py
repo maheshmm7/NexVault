@@ -205,10 +205,10 @@ def process_password_reset_flow(db: Session, email: str) -> None:
         # Logging hygiene: Never include sensitive SMTP credentials, raw tokens, or recovery codes in logs.
         logger.error(f"SMTP delivery failed during forgot-password flow: {str(e)}")
         
-        # Controlled Development Fallback: only print when COOKIE_SECURE is False (dev env)
+        # Controlled Development Fallback: log locally when COOKIE_SECURE is False (dev env)
         if not settings.COOKIE_SECURE:
-            print("[DEVELOPMENT ONLY FALLBACK] SMTP failed. Printing reset link in console:")
-            print("RESET LINK URL:", reset_link)
+            logger.warning("[DEVELOPMENT ONLY FALLBACK] SMTP failed. Logging reset link locally.")
+            logger.info(f"RESET LINK URL: {reset_link}")
         else:
             raise RuntimeError("Email delivery transport failed.")
 

@@ -11,13 +11,19 @@ class PaymentSourceBase(BaseModel):
 
     # Credit card
     credit_limit: Optional[Decimal] = None
+    card_ceiling_limit: Optional[Decimal] = None
     available_limit: Optional[Decimal] = None
     billing_date: Optional[str] = None
     due_date: Optional[str] = None
+    statement_day: Optional[int] = None
+    due_day: Optional[int] = None
     network: Optional[str] = None
+    credit_pool_id: Optional[str] = None
 
-    # Shared
+    # Shared card fields
     account_number_last4: Optional[str] = None
+    card_outstanding: Optional[Decimal] = None
+    shared_group_id: Optional[str] = None
 
     # Bank / debit
     bank_name: Optional[str] = None
@@ -42,11 +48,17 @@ class PaymentSourceUpdate(BaseModel):
     type: Optional[str] = None
     balance: Optional[Decimal] = None
     credit_limit: Optional[Decimal] = None
+    card_ceiling_limit: Optional[Decimal] = None
     available_limit: Optional[Decimal] = None
     billing_date: Optional[str] = None
     due_date: Optional[str] = None
+    statement_day: Optional[int] = None
+    due_day: Optional[int] = None
     network: Optional[str] = None
+    credit_pool_id: Optional[str] = None
     account_number_last4: Optional[str] = None
+    card_outstanding: Optional[Decimal] = None
+    shared_group_id: Optional[str] = None
     bank_name: Optional[str] = None
     account_holder_name: Optional[str] = None
     account_subtype: Optional[str] = None
@@ -62,6 +74,7 @@ class PaymentSourceResponse(PaymentSourceBase):
     is_demo: bool = False
     created_at: datetime
     updated_at: Optional[datetime] = None
+    actual_spendable: Optional[Decimal] = None
 
     @field_validator("created_at", "updated_at", mode="before")
     @classmethod

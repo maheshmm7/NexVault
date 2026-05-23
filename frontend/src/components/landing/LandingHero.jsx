@@ -61,7 +61,7 @@ export default function LandingHero() {
         {/* Cinematic Headline */}
         <motion.h1 
           variants={fadeInUp}
-          className="text-5xl md:text-7xl font-bold tracking-tight mb-6 text-cinematic-gradient"
+          className="text-5xl md:text-7xl font-bold tracking-tight mb-6 animate-shimmer-text text-cinematic-gradient"
         >
           The Next-Generation <br />
           <span className="text-white">Financial Operating System</span>
@@ -340,17 +340,24 @@ function DemoMotionTour() {
       {/* Progress Bars (Player Style) */}
       <div className="absolute bottom-10 left-10 right-10 flex gap-3 z-20">
         {STEPS.map((_, i) => (
-          <div key={i} className="flex-1 h-1 bg-white/10 rounded-full overflow-hidden">
-            <motion.div
-              initial={false}
-              animate={{ 
-                width: step === i ? "100%" : step > i ? "100%" : "0%",
-                opacity: step === i ? 1 : 0.3
-              }}
-              transition={{ duration: step === i ? 5 : 0.5, ease: "linear" }}
-              className="h-full bg-primary shadow-[0_0_10px_rgba(59,130,246,0.5)]"
-            />
-          </div>
+          <button 
+            key={i} 
+            onClick={() => setStep(i)}
+            className="flex-1 h-3 flex items-center group cursor-pointer focus:outline-none"
+            aria-label={`Jump to step ${i + 1}`}
+          >
+            <div className="w-full h-1 bg-white/10 group-hover:bg-white/20 rounded-full overflow-hidden transition-colors">
+              <motion.div
+                initial={false}
+                animate={{ 
+                  width: step === i ? "100%" : step > i ? "100%" : "0%",
+                  opacity: step === i ? 1 : 0.3
+                }}
+                transition={{ duration: step === i ? 5 : 0.5, ease: "linear" }}
+                className="h-full bg-primary shadow-[0_0_10px_rgba(59,130,246,0.5)]"
+              />
+            </div>
+          </button>
         ))}
       </div>
 

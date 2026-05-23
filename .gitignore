@@ -27,3 +27,19 @@ Thumbs.db
 # Build
 build/
 coverage/
+
+# Databases
+*.db
+*.sqlite
+
+# Test Caches
+.pytest_cache/
+backend/.pytest_cache/
+frontend/.pytest_cache/
+
+# Development Scratch Folders
+backend/scratch/
+
+# TestSuite & TestSprite local testing files
+testsprite_tests/
+**/testsprite_tests/

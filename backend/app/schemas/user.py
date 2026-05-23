@@ -21,6 +21,16 @@ class UserUpdate(BaseModel):
     avatar_url: Optional[str] = None
     current_password: Optional[str] = None
     new_password: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def validate_created_at(cls, v):
+        if v is None:
+            return v
+        from app.schemas.utils import ensure_utc
+        return ensure_utc(v)
+
 
 
 class UserResponse(UserBase):

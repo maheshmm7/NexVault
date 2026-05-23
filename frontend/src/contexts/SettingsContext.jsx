@@ -20,6 +20,7 @@ const currencyMap = {
 const DEFAULTS = {
     currency: 'INR',
     theme: 'dark',
+    onboardingAcknowledged: false,
     notifications: {
         billReminders: true,
         couponExpiry: true,
@@ -47,11 +48,13 @@ function loadLocal() {
         const notifs   = localStorage.getItem('notifications');
         const coupon   = localStorage.getItem('couponPreferences');
         const dt       = localStorage.getItem('dateTimePreferences');
+        const onboarding = localStorage.getItem('onboardingAcknowledged');
         if (currency) merge.currency = currency;
         if (theme)    merge.theme    = theme;
         if (notifs)   merge.notifications        = JSON.parse(notifs);
         if (coupon)   merge.couponPreferences     = JSON.parse(coupon);
         if (dt)       merge.dateTimePreferences   = JSON.parse(dt);
+        if (onboarding) merge.onboardingAcknowledged = onboarding === 'true';
     } catch { /* ignore */ }
     return merge;
 }
@@ -64,6 +67,7 @@ export function SettingsProvider({ children }) {
     const [notifications,       setNotificationsState]       = useState(local.notifications);
     const [couponPreferences,   setCouponPreferencesState]   = useState(local.couponPreferences);
     const [dateTimePreferences, setDateTimePreferencesState] = useState(local.dateTimePreferences);
+    const [onboardingAcknowledged, setOnboardingAcknowledgedState] = useState(local.onboardingAcknowledged);
     const [serverSynced,        setServerSynced]             = useState(false);
 
     // ─── Debounced server persist ─────────────────────────────────────────────
@@ -89,6 +93,10 @@ export function SettingsProvider({ children }) {
             if (s.notifications)       { setNotificationsState(s.notifications);             localStorage.setItem('notifications', JSON.stringify(s.notifications)); }
             if (s.couponPreferences)   { setCouponPreferencesState(s.couponPreferences);     localStorage.setItem('couponPreferences', JSON.stringify(s.couponPreferences)); }
             if (s.dateTimePreferences) { setDateTimePreferencesState(s.dateTimePreferences); localStorage.setItem('dateTimePreferences', JSON.stringify(s.dateTimePreferences)); }
+            if (s.onboardingAcknowledged !== undefined) {
+                setOnboardingAcknowledgedState(s.onboardingAcknowledged);
+                localStorage.setItem('onboardingAcknowledged', String(s.onboardingAcknowledged));
+            }
             setServerSynced(true);
         } catch { 
             // Network failure or unauthenticated cookie — keep standard defaults/local settings active
@@ -137,6 +145,12 @@ export function SettingsProvider({ children }) {
         persistToServer({ dateTimePreferences: v });
     }, [persistToServer]);
 
+    const setOnboardingAcknowledged = useCallback((v) => {
+        setOnboardingAcknowledgedState(v);
+        localStorage.setItem('onboardingAcknowledged', String(v));
+        persistToServer({ onboardingAcknowledged: v });
+    }, [persistToServer]);
+
     const currencySymbol = currencyMap[currency] ?? '₹';
 
     return (
@@ -154,6 +168,8 @@ export function SettingsProvider({ children }) {
                 setCouponPreferences,
                 dateTimePreferences,
                 setDateTimePreferences,
+                onboardingAcknowledged,
+                setOnboardingAcknowledged,
                 triggerSync,
             }}
         >

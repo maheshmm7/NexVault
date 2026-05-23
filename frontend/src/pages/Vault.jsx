@@ -13,6 +13,27 @@ import { BRANDING } from '../config/branding';
 import LoadingScreen from '../components/LoadingScreen';
 import ErrorState from '../components/ErrorState';
 
+// Inject custom CSS keyframe animations for the confetti explosion at the document head
+if (typeof document !== 'undefined') {
+  const styleId = 'confetti-animation-style';
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.innerHTML = `
+      @keyframes confetti-burst {
+        0% {
+          transform: translate(-50%, -50%) scale(1) rotate(0deg);
+          opacity: 1;
+        }
+        100% {
+          transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(0.1) rotate(var(--rot));
+          opacity: 0;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+}
 
 const STATUS_COLORS = {
   active:  { bg: 'bg-emerald-500/10', text: 'text-emerald-400', dot: '#10b981' },
@@ -32,9 +53,54 @@ export default function Vault() {
   const [editingId, setEditingId]     = useState(null);
   const [showPin, setShowPin]         = useState({});
   const [filter, setFilter]           = useState('active');
+  const [selectedCategory, setSelectedCategory] = useState('All');
   const [formData, setFormData]       = useState({ ...EMPTY_FORM });
   const [deleteTarget, setDeleteTarget] = useState(null);
   const { addToast } = useToast();
+
+  const triggerConfetti = (button) => {
+    if (!button) return;
+    const rect = button.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+
+    const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#a855f7', '#ec4899'];
+
+    for (let i = 0; i < 35; i++) {
+      const particle = document.createElement('div');
+      const color = colors[Math.floor(Math.random() * colors.length)];
+      const size = Math.random() * 7 + 4; // 4px to 11px
+
+      particle.style.position = 'fixed';
+      particle.style.left = `${x}px`;
+      particle.style.top = `${y}px`;
+      particle.style.width = `${size}px`;
+      particle.style.height = `${size}px`;
+      particle.style.backgroundColor = color;
+      particle.style.borderRadius = Math.random() > 0.5 ? '50%' : '2px';
+      particle.style.zIndex = '999999';
+      particle.style.pointerEvents = 'none';
+
+      const angle = Math.random() * Math.PI * 2;
+      const velocity = Math.random() * 90 + 50; // 50px to 140px burst
+      const tx = Math.cos(angle) * velocity;
+      const ty = Math.sin(angle) * velocity - (Math.random() * 40 + 10); // add gravity arch
+      const rot = Math.random() * 720 - 360;
+
+      particle.style.setProperty('--tx', `${tx}px`);
+      particle.style.setProperty('--ty', `${ty}px`);
+      particle.style.setProperty('--rot', `${rot}deg`);
+      
+      // Apply CSS animation
+      particle.style.animation = 'confetti-burst 0.8s cubic-bezier(0.1, 0.8, 0.25, 1) forwards';
+
+      document.body.appendChild(particle);
+
+      setTimeout(() => {
+        particle.remove();
+      }, 850);
+    }
+  };
 
   const fetchCoupons = async () => {
     setLoading(true);
@@ -105,9 +171,14 @@ export default function Vault() {
     }
   };
 
-  const copyToClipboard = (text, label = 'Code') => {
+  const copyToClipboard = (e, text, label = 'Code') => {
+    // Capture the target element synchronously from the event before async processing
+    const targetElement = e ? (e.currentTarget || e.target) : null;
     navigator.clipboard.writeText(text).then(() => {
       addToast(`${label} copied!`, 'success');
+      triggerConfetti(targetElement);
+    }).catch(() => {
+      addToast(`Failed to copy ${label.toLowerCase()}`, 'error');
     });
   };
 
@@ -153,9 +224,24 @@ export default function Vault() {
     return { ...c, effectiveStatus, isExpiringSoon };
   });
 
-  const filteredCoupons = filter
-    ? processedCoupons.filter(c => c.effectiveStatus === filter)
-    : processedCoupons;
+  const categories = useMemo(() => {
+    const cats = new Set();
+    processedCoupons.forEach(c => {
+      if (c.category) cats.add(c.category);
+    });
+    return ['All', ...Array.from(cats)];
+  }, [processedCoupons]);
+
+  const filteredCoupons = useMemo(() => {
+    let result = processedCoupons;
+    if (filter) {
+      result = result.filter(c => c.effectiveStatus === filter);
+    }
+    if (selectedCategory !== 'All') {
+      result = result.filter(c => (c.category || 'General') === selectedCategory);
+    }
+    return result;
+  }, [processedCoupons, filter, selectedCategory]);
 
   const stats = useMemo(() => {
     const active = processedCoupons.filter(c => c.effectiveStatus === 'active').length;
@@ -182,29 +268,52 @@ export default function Vault() {
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 border-b pb-4" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-        <div>
-          <h1 className="text-2xl font-bold text-main tracking-tight">Coupon Vault</h1>
-          <p className="text-muted mt-1">Store and manage your discount codes and vouchers.</p>
-        </div>
-        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-          <CustomSelect
-            value={filter}
-            onChange={setFilter}
-            className="w-full sm:w-auto"
-            options={[
-              { value: 'active',  label: 'Active' },
-              { value: 'used',    label: 'Used' },
-              { value: 'expired', label: 'Expired' },
-              { value: '',        label: 'All Statuses' },
-            ]}
-          />
-          <button onClick={openAdd} className="btn-primary whitespace-nowrap flex items-center gap-2">
-            <Plus className="w-4 h-4" /> Add Coupon
-          </button>
-        </div>
+      {/* Header utility bar */}
+      <div className="flex justify-end gap-3 mb-6 pb-2 border-b border-white/5">
+        <CustomSelect
+          value={filter}
+          onChange={setFilter}
+          className="w-full sm:w-auto"
+          options={[
+            { value: 'active',  label: 'Active' },
+            { value: 'used',    label: 'Used' },
+            { value: 'expired', label: 'Expired' },
+            { value: '',        label: 'All Statuses' },
+          ]}
+        />
+        <button onClick={openAdd} className="btn-primary whitespace-nowrap flex items-center gap-2">
+          <Plus className="w-4 h-4" /> Add Coupon
+        </button>
       </div>
+
+      {/* Category Filter Pill Carousel */}
+      {!loading && categories.length > 1 && (
+        <div className="w-full py-2 border-b border-white/5">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+            <span className="text-[10px] font-bold text-muted uppercase tracking-widest pr-2 border-r border-white/5 flex items-center shrink-0">
+              Categories
+            </span>
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pl-1">
+              {categories.map(cat => {
+                const isActive = selectedCategory === cat;
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCategory(cat)}
+                    className={`px-3 py-1 rounded-full text-[11px] font-bold tracking-wide transition-all border shrink-0 ${
+                      isActive
+                        ? 'bg-primary/20 text-primary border-primary/30 shadow-[0_0_12px_rgba(59,130,246,0.15)]'
+                        : 'bg-slate-900/40 text-muted border-white/5 hover:text-main hover:border-white/10 hover:bg-white/5'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 0. Coupon Stats Analytics Row */}
       {!loading && processedCoupons.length > 0 && (
@@ -280,17 +389,26 @@ export default function Vault() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredCoupons.map(coupon => {
             const statusStyle = STATUS_COLORS[coupon.effectiveStatus] || STATUS_COLORS.active;
+            const daysLeft = coupon.expiry_date ? Math.ceil((new Date(coupon.expiry_date) - new Date()) / (1000 * 60 * 60 * 24)) : null;
 
             return (
               <div
                 key={coupon.id}
-                className={`card p-5 transition-all group relative overflow-hidden hover:shadow-lg flex flex-col h-full ${
-                  coupon.isExpiringSoon ? 'border-orange-500/30' : ''
-                } ${coupon.effectiveStatus !== 'active' ? 'opacity-80 grayscale-[20%] scale-[0.99]' : ''}`}
+                className={`card p-5 transition-all group relative hover:shadow-lg flex flex-col h-full ${
+                  coupon.isExpiringSoon ? 'border-orange-500/40 bg-orange-500/[0.02]' : 'border-white/5'
+                } ${coupon.effectiveStatus !== 'active' ? 'opacity-70 grayscale-[15%] scale-[0.99]' : ''}`}
+                style={{
+                  clipPath: 'radial-gradient(circle at 0px 65%, transparent 8px, white 8px), radial-gradient(circle at 100% 65%, transparent 8px, white 8px)',
+                  WebkitClipPath: 'radial-gradient(circle at 0px 65%, transparent 8px, white 8px), radial-gradient(circle at 100% 65%, transparent 8px, white 8px)'
+                }}
               >
+                {/* Skeuomorphic Ticket Notches */}
+                <div className="absolute -left-[1px] top-[65%] -translate-y-1/2 w-2 h-4 bg-[#040814] rounded-r-full border-r border-y border-white/10 z-10" />
+                <div className="absolute -right-[1px] top-[65%] -translate-y-1/2 w-2 h-4 bg-[#040814] rounded-l-full border-l border-y border-white/10 z-10" />
+
                 {coupon.isExpiringSoon && (
                   <div className="absolute top-0 right-0 bg-orange-500/15 text-orange-400 text-[10px] font-bold px-2.5 py-1 rounded-bl-xl flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3" /> Expiring Soon
+                    <AlertCircle className="w-3 h-3 animate-pulse" /> Expiring Soon
                   </div>
                 )}
 
@@ -328,12 +446,15 @@ export default function Vault() {
                   </div>
                 )}
 
+                {/* Skeuomorphic Ticket Divider Line */}
+                <div className="border-t border-dashed border-white/10 my-4" />
+
                 {/* Code box */}
-                <div className="rounded-xl p-3 border mb-2" style={{ background: 'var(--background)', borderColor: 'rgba(255,255,255,0.06)' }}>
+                <div className="rounded-xl p-3 border border-white/5 mb-3" style={{ background: 'var(--background)' }}>
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-mono text-main text-sm tracking-widest truncate select-all">{coupon.code}</span>
                     <button
-                      onClick={() => copyToClipboard(coupon.code, 'Code')}
+                      onClick={(e) => copyToClipboard(e, coupon.code, 'Code')}
                       className="p-1.5 text-muted hover:text-primary hover:bg-white/5 border border-transparent hover:border-white/10 rounded-lg transition-all active:scale-95 shrink-0 flex items-center justify-center"
                       title="Copy code"
                     >
@@ -342,7 +463,7 @@ export default function Vault() {
                   </div>
 
                   {coupon.pin && (
-                    <div className="mt-2 pt-2 flex items-center justify-between gap-2" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div className="mt-2 pt-2 flex items-center justify-between gap-2 border-t border-white/5">
                       <span className="text-xs text-muted">
                         PIN:{' '}
                         {showPin[coupon.id]
@@ -361,8 +482,30 @@ export default function Vault() {
                   )}
                 </div>
 
+                {/* Expiry Heat Bar / Countdown Timer */}
+                {coupon.expiry_date && coupon.effectiveStatus === 'active' && (
+                  <div className="mt-auto mb-3 pt-2">
+                    <div className="flex justify-between items-center text-[10px] text-muted mb-1.5 font-semibold">
+                      <span className="flex items-center gap-1">
+                        <Hourglass className="w-3 h-3 text-muted" /> Timer
+                      </span>
+                      <span className={daysLeft <= 1 ? 'text-red-400 font-extrabold animate-pulse' : daysLeft <= 3 ? 'text-amber-400 font-bold' : 'text-emerald-400 font-medium'}>
+                        {daysLeft <= 0 ? 'Expiring today' : daysLeft === 1 ? '1 day left' : `${daysLeft} days left`}
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden border border-white/5 relative">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          daysLeft <= 1 ? 'bg-red-500 shadow-[0_0_8px_#ef4444] animate-pulse' : daysLeft <= 3 ? 'bg-amber-500' : 'bg-emerald-500'
+                        }`}
+                        style={{ width: `${Math.max(5, Math.min(100, (daysLeft / 30) * 100))}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
                 {/* Status and Mark Used Badge Section */}
-                <div className="flex items-center justify-between mt-3 pt-2" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                <div className="flex items-center justify-between mt-auto pt-2.5 border-t border-white/5">
                   <div className="flex items-center gap-1.5">
                     <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: statusStyle.dot }} />
                     <span className={`text-[11px] font-semibold capitalize tracking-wide ${statusStyle.text}`}>
@@ -475,7 +618,7 @@ export default function Vault() {
             />
           </div>
 
-          <div className="pt-4 flex justify-end gap-3" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+          <div className="pt-4 flex justify-end gap-3 border-t border-white/5">
             <button type="button" onClick={() => setIsModalOpen(false)} className="btn-secondary">Cancel</button>
             <button type="submit" className="btn-primary">Save Coupon</button>
           </div>

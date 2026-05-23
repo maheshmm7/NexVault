@@ -387,8 +387,7 @@ textarea.input-field {
   background: rgba(59, 130, 246, 0.15) !important;
 }
 
-.react-datepicker__day--selected,
-.react-datepicker__day--keyboard-selected {
+.react-datepicker__day--selected {
   background: var(--primary) !important;
   color: #ffffff !important;
   font-weight: 700 !important; /* Premium bold */
@@ -396,6 +395,12 @@ textarea.input-field {
   transform: scale(1.08) !important;
   z-index: 2;
   position: relative;
+}
+
+.react-datepicker__day--keyboard-selected:not(.react-datepicker__day--selected) {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: var(--text) !important;
+  border: 1.5px dashed rgba(59, 130, 246, 0.4) !important;
 }
 
 .react-datepicker__day--outside-month {
@@ -457,6 +462,11 @@ textarea.input-field {
   transform: translate(0, 0) !important; /* Snug, physical attachment to base */
   z-index: 9999 !important;
   margin: 0 !important;
+}
+
+/* Premium custom dropdown spacing */
+.react-datepicker__header__dropdown {
+  margin: 6px 0 8px 0 !important;
 }
 
 /* ═══════════════════════════════════════════
@@ -694,4 +704,125 @@ select.input-field {
 .overflow-x-safe {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+/* ═══════════════════════════════════════════
+   DASHBOARD REFINEMENT UTILITIES & ANIMATIONS
+   ═══════════════════════════════════════════ */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+@keyframes staggerFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-stagger-fade-in {
+  animation: staggerFadeUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Card active/pressed state */
+.card:active {
+  transform: scale(0.985);
+}
+
+/* Reduce motion safety */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-delay: -1ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    background-attachment: initial !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+  }
+  .card:not(.no-hover):hover,
+  .card:active {
+    transform: none !important;
+    box-shadow: none !important;
+  }
+}
+
+/* ═══════════════════════════════════════════
+   PREMIUM GLASS & CURSOR GLOW UPGRADES
+   ═══════════════════════════════════════════ */
+.hover-glow-card {
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.3s var(--motion-ease), border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.hover-glow-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    300px circle at var(--mouse-x, 0px) var(--mouse-y, 0px),
+    var(--glow-color, rgba(59, 130, 246, 0.08)),
+    transparent 80%
+  );
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+
+.hover-glow-card:hover::before {
+  opacity: 1;
+}
+
+/* Shimmering Text Gradient for Hero & Headings */
+.animate-shimmer-text {
+  background: linear-gradient(
+    120deg, 
+    #ffffff 0%, 
+    #94a3b8 25%, 
+    #3b82f6 50%, 
+    #94a3b8 75%, 
+    #ffffff 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmerText 8s linear infinite;
+}
+
+@keyframes shimmerText {
+  to {
+    background-position: 200% center;
+  }
+}
+
+/* Premium Focus Glows */
+.input-glow-focus {
+  transition: all 0.3s var(--motion-ease) !important;
+}
+
+.input-glow-focus:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.15), 0 0 20px rgba(59, 130, 246, 0.15) !important;
+  background: rgba(30, 41, 59, 0.6) !important;
+}
+
+/* Animated Border Glow Card */
+.animated-glow-border {
+  position: relative;
+  border-radius: 48px;
+  background: linear-gradient(var(--background), var(--background)) padding-box,
+              linear-gradient(135deg, rgba(59, 130, 246, 0.4), rgba(16, 185, 129, 0.4)) border-box;
+  border: 1.5px solid transparent;
 }

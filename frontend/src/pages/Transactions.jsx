@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Receipt, Search, ArrowUpRight, ArrowDownRight, Edit, Trash2, RefreshCw, Copy, Repeat2, Clipboard, Clock, AlertCircle, CreditCard, Tag, Database } from 'lucide-react';
+import { Plus, Receipt, Search, ArrowUpRight, ArrowDownRight, Edit, Trash2, RefreshCw, Copy, Repeat2, Clipboard, Clock, AlertCircle, CreditCard, Tag, Database, Shield, Info } from 'lucide-react';
 import CustomSelect from '../components/CustomSelect';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
@@ -10,6 +10,7 @@ import EmptyState from '../components/EmptyState';
 import { SkeletonRow } from '../components/Skeleton';
 import { useToast } from '../contexts/ToastContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { useAuth } from '../contexts/AuthContext';
 import { format } from 'date-fns';
 import dayjs from 'dayjs';
 import PremiumDatePicker from '../components/PremiumDatePicker';
@@ -18,6 +19,7 @@ import { BRANDING } from '../config/branding';
 import LoadingScreen from '../components/LoadingScreen';
 import { SkeletonLedger } from '../components/Skeleton';
 import ErrorState from '../components/ErrorState';
+import { Link } from 'react-router-dom';
 
 
 const EMPTY_FORM = {
@@ -29,6 +31,9 @@ const EMPTY_FORM = {
   timestamp: '',
   is_recurring: false,
   recurring_interval: '',
+  repayment_target_id: '',
+  repayment_funding_id: '',
+  repayment_type: 'full',
 };
 
 const getTodayDate = () => {
@@ -39,6 +44,22 @@ const getTodayDate = () => {
 const getCurrentLocalTimestamp = () => {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}T${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+};
+
+const parseValidationMessage = (msg) => {
+  if (!msg) return { isTimelineError: false };
+  const regex = /^(Insufficient funds|Limit exceeded|Shared pool limit exceeded|Spending power exceeded):\s+(?:Your|The)\s+(?:balance|available credit limit|actual spendable credit|available pool limit)\s+on\s+(\d{2}\/\d{2}\/\d{4})\s+was\s+₹([\d,\.]+),\s+which\s+is\s+insufficient\s+for\s+this\s+₹([\d,\.]+)\s+transaction\./i;
+  const match = msg.match(regex);
+  if (match) {
+    return {
+      isTimelineError: true,
+      category: match[1],
+      date: match[2],
+      availableAmount: match[3],
+      attemptedAmount: match[4]
+    };
+  }
+  return { isTimelineError: false };
 };
 
 const isToday = (dateString) => dateString === getTodayDate();
@@ -75,6 +96,7 @@ export default function Transactions() {
       addToast('Demo workspace populated successfully!', 'success');
       setIsModalOpen(false);
       await fetchData();
+      window.dispatchEvent(new Event('transactionAdded'));
     } catch (err) {
       addToast(err.response?.data?.detail || 'Failed to seed demo data', 'error');
     } finally {
@@ -99,6 +121,52 @@ export default function Transactions() {
   const [recurringOnly,     setRecurringOnly]     = useState(false);
 
   const { addToast } = useToast();
+  const { user } = useAuth();
+  const [safetyAlert, setSafetyAlert] = useState(null);
+  const [showTimelineDetails, setShowTimelineDetails] = useState(false);
+  const [showDateTooltip, setShowDateTooltip] = useState(false);
+
+  const presets = [
+    { label: '🛒 Groceries', category: 'Groceries', type: 'expense' },
+    { label: '🍔 Dining', category: 'Dining', type: 'expense' },
+    { label: '🚗 Transit', category: 'Transit', type: 'expense' },
+    { label: '⚡ Bills', category: 'Bills', type: 'expense' },
+    { label: '🛍️ Shopping', category: 'Shopping', type: 'expense' }
+  ];
+
+  const applyPreset = (preset) => {
+    const matchedCat = categories.find(c => c.name.toLowerCase().includes(preset.category.toLowerCase()));
+    setFormData(prev => ({
+      ...prev,
+      type: preset.type,
+      category_id: matchedCat ? matchedCat.id : prev.category_id
+    }));
+    addToast(`Preset applied: ${preset.category}`, 'info');
+  };
+
+  const onboardingDate = useMemo(() => {
+    if (!user?.created_at) return null;
+    return new Date(user.created_at);
+  }, [user]);
+
+  const onboardingDateStr = useMemo(() => {
+    if (!onboardingDate) return '';
+    return format(onboardingDate, 'dd/MM/yyyy');
+  }, [onboardingDate]);
+
+  const handleSaveError = (err, defaultMsg) => {
+    const errorMsg = err.response?.data?.detail || defaultMsg;
+    const parsed = parseValidationMessage(errorMsg);
+    if (parsed.isTimelineError) {
+      setSafetyAlert({
+        message: errorMsg,
+        ...parsed
+      });
+    } else {
+      addToast(errorMsg, 'error');
+    }
+  };
+  
   const { currencySymbol, theme, dateTimePreferences } = useSettings();
   const isDark = theme === 'dark';
   const dFormat = dateTimePreferences?.dateFormat || 'dd/MM/yyyy';
@@ -148,16 +216,25 @@ export default function Transactions() {
     setManualTime('');
     setShowClock(false);
     setCustomCategory('');
+    const nonCredit = sources.find(s => s.type !== 'credit_card');
+    const credit = sources.find(s => s.type === 'credit_card');
     setFormData({
       ...EMPTY_FORM,
       source_id: sources[0]?.id || '',
       category_id: '',
       timestamp: getTodayDate(),
+      repayment_funding_id: nonCredit?.id || '',
+      repayment_target_id: credit?.id || '',
+      repayment_type: 'full',
     });
     setIsModalOpen(true);
   };
 
   const openEdit = (tx) => {
+    if (tx.notes?.includes('[Ref: CC_PAYMENT_')) {
+      addToast('Repayments cannot be edited directly. Please delete and re-create the repayment.', 'info');
+      return;
+    }
     setEditingId(tx.id);
     setShowClock(false);
     setCustomCategory('');
@@ -188,6 +265,9 @@ export default function Transactions() {
       category_id: tx.category_id,
       notes: tx.notes || '',
       timestamp: localDateStr,
+      repayment_funding_id: '',
+      repayment_target_id: '',
+      repayment_type: 'full',
     });
     setIsModalOpen(true);
   };
@@ -219,6 +299,82 @@ export default function Transactions() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      if (!isToday(formData.timestamp) && !manualTime) {
+        addToast('Please select a time for previous date transactions', 'error');
+        return;
+      }
+
+      if (formData.type === 'repayment') {
+        if (!formData.repayment_funding_id || !formData.repayment_target_id) {
+          addToast('Please select both a funding account and a target credit card.', 'error');
+          return;
+        }
+
+        let repaymentCat = categories.find(c => c.name === 'Repayment');
+        if (!repaymentCat) {
+          const catRes = await api.post('/categories', {
+            name: 'Repayment',
+            type: 'expense',
+            color: '#3B82F6',
+            icon: 'credit-card',
+          });
+          repaymentCat = catRes.data;
+        }
+
+        const fundingName = sources.find(s => s.id === formData.repayment_funding_id)?.name || 'Account';
+        const targetName = sources.find(s => s.id === formData.repayment_target_id)?.name || 'Credit Card';
+        const refId = `CC_PAYMENT_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        
+        let repaymentLabel = '';
+        if (formData.repayment_type === 'emi') {
+          repaymentLabel = `EMI Repayment to ${targetName} from ${fundingName}`;
+        } else if (formData.repayment_type === 'full') {
+          repaymentLabel = `Full Bill Payment for ${targetName} from ${fundingName}`;
+        } else if (formData.repayment_type === 'minimum') {
+          repaymentLabel = `Minimum Due Payment for ${targetName} from ${fundingName}`;
+        } else {
+          repaymentLabel = `Credit Card Payment to ${targetName} from ${fundingName}`;
+        }
+
+        let firstLegRes;
+        try {
+          firstLegRes = await api.post('/transactions', {
+            type: 'expense',
+            source_id: formData.repayment_funding_id,
+            category_id: repaymentCat.id,
+            amount: Number(parseFloat(formData.amount).toFixed(2)),
+            notes: `${repaymentLabel} [Ref: ${refId}]`,
+            timestamp: buildTimestamp(formData.timestamp, manualTime),
+          });
+        } catch (err) {
+          handleSaveError(err, 'Repayment failed: Funding account could not be charged.');
+          return;
+        }
+
+        try {
+          await api.post('/transactions', {
+            type: 'repayment',
+            source_id: formData.repayment_target_id,
+            category_id: repaymentCat.id,
+            amount: Number(parseFloat(formData.amount).toFixed(2)),
+            notes: `${repaymentLabel} [Ref: ${refId}]`,
+            timestamp: buildTimestamp(formData.timestamp, manualTime),
+          });
+          addToast('Repayment transaction completed successfully', 'success');
+          setIsModalOpen(false);
+          fetchData();
+          window.dispatchEvent(new Event('transactionAdded'));
+        } catch (err) {
+          try {
+            await api.delete(`/transactions/${firstLegRes.data.id}`);
+          } catch (rollbackErr) {
+            console.error('Failed to rollback first leg:', rollbackErr);
+          }
+          handleSaveError(err, 'Repayment failed: Destination credit card could not be credited. Rolled back funding charge.');
+        }
+        return;
+      }
+
       let finalCategoryId = formData.category_id;
       const selectedCategory = categories.find(c => c.id === formData.category_id);
       if (selectedCategory?.name === 'Others' && customCategory.trim()) {
@@ -228,15 +384,10 @@ export default function Transactions() {
         finalCategoryId = res.data.id;
       }
 
-      if (!isToday(formData.timestamp) && !manualTime) {
-        addToast('Please select a time for previous date transactions', 'error');
-        return;
-      }
-
       const payload = {
         ...formData,
         category_id: finalCategoryId,
-        amount: parseFloat(formData.amount),
+        amount: Number(parseFloat(formData.amount).toFixed(2)),
         timestamp: buildTimestamp(formData.timestamp, manualTime),
       };
 
@@ -251,8 +402,9 @@ export default function Transactions() {
       setCustomCategory('');
       setIsModalOpen(false);
       fetchData();
+      window.dispatchEvent(new Event('transactionAdded'));
     } catch (err) {
-      addToast(err.response?.data?.detail || 'Failed to save', 'error');
+      handleSaveError(err, 'Failed to save');
     }
   };
 
@@ -260,13 +412,23 @@ export default function Transactions() {
 
   const confirmDelete = async () => {
     try {
-      await api.delete(`/transactions/${transactionToDelete}`);
-      addToast('Transaction deleted', 'success');
+      const tx = transactions.find(t => t.id === transactionToDelete);
+      const match = tx?.notes?.match(/\[Ref:\s*(CC_PAYMENT_[a-zA-Z0-9_\-]+)\]/);
+      if (match) {
+        const refId = match[1];
+        const toDelete = transactions.filter(t => t.notes?.includes(refId));
+        await Promise.all(toDelete.map(t => api.delete(`/transactions/${t.id}`)));
+        addToast('Linked repayment transactions deleted successfully', 'success');
+      } else {
+        await api.delete(`/transactions/${transactionToDelete}`);
+        addToast('Transaction deleted', 'success');
+      }
       setDeleteModalOpen(false);
       setTransactionToDelete(null);
       fetchData();
+      window.dispatchEvent(new Event('transactionAdded'));
     } catch {
-      addToast('Failed to delete', 'error');
+      addToast('Failed to delete transaction', 'error');
     }
   };
 
@@ -381,11 +543,6 @@ export default function Transactions() {
     <div className="space-y-6 max-w-6xl mx-auto">
       {/* Header */}
       <div className="mb-6 border-b border-white/5 pb-5">
-        <div className="mb-5">
-          <h1 className="text-2xl font-bold text-main tracking-tight">Transactions</h1>
-          <p className="text-muted mt-1 max-w-md">Review and manage your financial history.</p>
-        </div>
-
         {/* Toolbar */}
         <div className="flex flex-wrap lg:flex-nowrap items-center gap-3">
           <div className="relative flex-1 min-w-[260px]">
@@ -417,6 +574,7 @@ export default function Transactions() {
               { value: 'all', label: 'All Types' },
               { value: 'expense', label: 'Expense' },
               { value: 'income', label: 'Income' },
+              { value: 'repayment', label: 'Repayment' },
             ]}
           />
 
@@ -535,7 +693,8 @@ export default function Transactions() {
           />
         ) : (
           <div className="table-container">
-            <table className="w-full text-left border-collapse table-compact">
+            {/* Desktop View */}
+            <table className="w-full text-left border-collapse table-compact hidden sm:table">
               <thead>
                 <tr className="border-b border-white/5 bg-white/[0.02]">
                   <th className="p-4 text-xs font-medium text-muted uppercase tracking-wider">Date</th>
@@ -549,6 +708,8 @@ export default function Transactions() {
               <tbody className="divide-y divide-white/5">
                 {filteredTransactions.map(tx => {
                   const isIncome = tx.type === 'income';
+                  const isRepayment = tx.type === 'repayment';
+                  const isPositive = isIncome || isRepayment;
                   const cat = getCategoryDetails(tx.category_id);
                   return (
                     <tr key={tx.id} className="hover:bg-white/[0.02] transition-colors group">
@@ -570,10 +731,10 @@ export default function Transactions() {
                     </td>
                       <td className="p-4 text-sm text-muted hidden md:table-cell">{getSourceName(tx.source_id)}</td>
                       <td className="p-4 text-sm text-muted max-w-[200px] truncate hidden lg:table-cell" title={tx.notes}>{tx.notes || '-'}</td>
-                      <td className={`p-4 text-sm font-bold text-right whitespace-nowrap ${isIncome ? 'text-secondary' : 'text-main'}`}>
+                      <td className={`p-4 text-sm font-bold text-right whitespace-nowrap ${isRepayment ? 'text-blue-400' : isIncome ? 'text-secondary' : 'text-main'}`}>
                         <div className="flex items-center justify-end">
-                          {isIncome ? <ArrowDownRight className="w-3 h-3 mr-1" /> : <ArrowUpRight className="w-3 h-3 mr-1 text-danger" />}
-                          {isIncome ? '+' : '-'}{currencySymbol}{parseFloat(tx.amount).toFixed(2)}
+                          {isPositive ? <ArrowDownRight className={`w-3 h-3 mr-1 ${isRepayment ? 'text-blue-400' : ''}`} /> : <ArrowUpRight className="w-3 h-3 mr-1 text-danger" />}
+                          {isPositive ? '+' : '-'}{currencySymbol}{parseFloat(tx.amount).toFixed(2)}
                         </div>
                       </td>
                       <td className="p-4 text-right">
@@ -614,6 +775,71 @@ export default function Transactions() {
                 })}
               </tbody>
             </table>
+
+            {/* Mobile View Stacked Cards */}
+            <div className="sm:hidden divide-y divide-white/5">
+              {filteredTransactions.map(tx => {
+                const isIncome = tx.type === 'income';
+                const isRepayment = tx.type === 'repayment';
+                const isPositive = isIncome || isRepayment;
+                const cat = getCategoryDetails(tx.category_id);
+                return (
+                  <div key={tx.id} className="p-4 flex flex-col gap-3 hover:bg-white/[0.01] transition-colors">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-2.5 h-2.5 rounded-full shrink-0 animate-pulse" style={{ backgroundColor: cat.color }} />
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-main truncate flex items-center gap-1.5">
+                            {cat.name}
+                            {tx.is_recurring && (
+                              <span className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded bg-primary/10 text-primary text-[9px] font-semibold">
+                                <RefreshCw className="w-2 h-2" />
+                                Recur
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-muted flex items-center gap-2 mt-0.5">
+                            <span>{format(new Date(tx.timestamp), 'dd MMM yy')}</span>
+                            <span className="w-1.5 h-1.5 rounded-full bg-white/20" />
+                            <span className="truncate max-w-[120px]">{getSourceName(tx.source_id)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className={`text-right font-bold text-sm shrink-0 whitespace-nowrap ${isRepayment ? 'text-blue-400' : isIncome ? 'text-secondary' : 'text-main'}`}>
+                        <div className="flex items-center justify-end">
+                          {isPositive ? <ArrowDownRight className={`w-3 h-3 mr-0.5 ${isRepayment ? 'text-blue-400' : ''}`} /> : <ArrowUpRight className="w-3 h-3 mr-0.5 text-danger" />}
+                          {isPositive ? '+' : '-'}{currencySymbol}{parseFloat(tx.amount).toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {tx.notes && (
+                      <div className="text-xs text-muted pl-5 italic truncate" title={tx.notes}>
+                        "{tx.notes}"
+                      </div>
+                    )}
+                    
+                    <div className="flex items-center justify-between border-t border-white/[0.02] pt-2">
+                      <span className="text-[10px] text-muted font-mono">ID: #{tx.id.toString().slice(-4)}</span>
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => openEdit(tx)} className="p-1 hover:text-primary rounded hover:bg-primary/10 transition-all">
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => handleDelete(tx.id)} className="p-1 hover:text-danger rounded hover:bg-danger/10 transition-all">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => duplicateTransaction(tx)} className="p-1 hover:text-secondary rounded hover:bg-secondary/10 transition-all">
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => copyAmount(tx)} className="p-1 hover:text-main rounded hover:bg-white/10 transition-all">
+                          <Clipboard className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
@@ -711,6 +937,7 @@ export default function Transactions() {
                 <div className="flex space-x-2">
                   <button type="button" onClick={() => setFormData({ ...formData, type: 'expense', category_id: '' })} className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-all ${formData.type === 'expense' ? 'bg-danger/20 border-danger/50 text-danger' : 'border-white/10 text-muted hover:bg-white/5'}`}>Expense</button>
                   <button type="button" onClick={() => setFormData({ ...formData, type: 'income', category_id: '' })} className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-all ${formData.type === 'income' ? 'bg-secondary/20 border-secondary/50 text-secondary' : 'border-white/10 text-muted hover:bg-white/5'}`}>Income</button>
+                  <button type="button" onClick={() => setFormData({ ...formData, type: 'repayment', category_id: '' })} className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-all ${formData.type === 'repayment' ? 'bg-blue-500/20 border-blue-500/50 text-blue-400' : 'border-white/10 text-muted hover:bg-white/5'}`}>Repayment</button>
                 </div>
               </div>
               <div>
@@ -719,38 +946,146 @@ export default function Transactions() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-muted mb-1.5">Account</label>
-                <CustomSelect
-                  required
-                  value={formData.source_id}
-                  onChange={v => setFormData({ ...formData, source_id: v })}
-                  options={sources.map(s => ({ value: s.id, label: s.name }))}
-                  placeholder="Select Account"
-                />
+            {/* Quick Preset Ribbon */}
+            {formData.type !== 'repayment' && (
+              <div className="mt-2">
+                <span className="block text-xs font-semibold text-muted mb-2 uppercase tracking-wider text-left">Quick Presets</span>
+                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+                  {presets.map(p => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => applyPreset(p)}
+                      className="px-3 py-1.5 rounded-full text-xs font-medium bg-white/5 border border-white/10 text-main hover:bg-primary/10 hover:border-primary/30 transition-all shrink-0 cursor-pointer"
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-muted mb-1.5">Category</label>
-                <CustomSelect
-                  required
-                  value={formData.category_id}
-                  onChange={v => setFormData({ ...formData, category_id: v })}
-                  options={[
-                    { value: '', label: 'Select Category' },
-                    ...filteredCategories.map(c => ({ value: c.id, label: c.name }))
-                  ]}
-                  placeholder="Select Category"
-                />
-                {filteredCategories.find(c => c.id === formData.category_id)?.name === 'Others' && (
-                  <input type="text" placeholder="Enter custom category" value={customCategory} onChange={e => setCustomCategory(e.target.value)} className="input-field mt-3" />
-                )}
+            )}
+
+            {formData.type === 'repayment' ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-muted mb-1.5">Paid Using Which Account?</label>
+                    <CustomSelect
+                      required
+                      value={formData.repayment_funding_id}
+                      onChange={v => setFormData({ ...formData, repayment_funding_id: v })}
+                      options={sources.filter(s => s.type !== 'credit_card').map(s => ({ value: s.id, label: s.name }))}
+                      placeholder="Select Funding Account"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-muted mb-1.5">Repaying Which Credit Card?</label>
+                    <CustomSelect
+                      required
+                      value={formData.repayment_target_id}
+                      onChange={v => setFormData({ ...formData, repayment_target_id: v })}
+                      options={sources.filter(s => s.type === 'credit_card').map(s => ({ value: s.id, label: s.name }))}
+                      placeholder="Select Credit Card"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-muted mb-1.5">Payment Type</label>
+                  <CustomSelect
+                    required
+                    value={formData.repayment_type}
+                    onChange={v => setFormData({ ...formData, repayment_type: v })}
+                    options={[
+                      { value: 'full', label: 'Full Bill Payment' },
+                      { value: 'minimum', label: 'Minimum Due Payment' },
+                      { value: 'emi', label: 'EMI Repayment' },
+                      { value: 'partial', label: 'Partial Card Repayment' },
+                    ]}
+                    placeholder="Select Payment Type"
+                  />
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-muted mb-1.5">Account</label>
+                  <CustomSelect
+                    required
+                    value={formData.source_id}
+                    onChange={v => setFormData({ ...formData, source_id: v })}
+                    options={sources.map(s => ({ value: s.id, label: s.name }))}
+                    placeholder="Select Account"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-muted mb-1.5">Category</label>
+                  <CustomSelect
+                    required
+                    value={formData.category_id}
+                    onChange={v => setFormData({ ...formData, category_id: v })}
+                    options={[
+                      { value: '', label: 'Select Category' },
+                      ...filteredCategories.map(c => ({ value: c.id, label: c.name }))
+                    ]}
+                    placeholder="Select Category"
+                  />
+                  {filteredCategories.find(c => c.id === formData.category_id)?.name === 'Others' && (
+                    <input type="text" placeholder="Enter custom category" value={customCategory} onChange={e => setCustomCategory(e.target.value)} className="input-field mt-3" />
+                  )}
+                </div>
+              </div>
+            )}
 
             <div>
-              <label className="block text-sm font-medium text-muted mb-2">Date</label>
-              <PremiumDatePicker value={formData.timestamp} onChange={(val) => setFormData({ ...formData, timestamp: val })} maxDate={new Date()} />
+              <div className="flex items-center gap-1.5 mb-2">
+                <label className="block text-sm font-medium text-muted">Date</label>
+                <div className="relative flex items-center group">
+                  <button
+                    type="button"
+                    onMouseEnter={() => setShowDateTooltip(true)}
+                    onMouseLeave={() => setShowDateTooltip(false)}
+                    onClick={() => setShowDateTooltip(!showDateTooltip)}
+                    className="p-0.5 rounded-full text-muted hover:text-amber-500 hover:bg-white/5 transition-all outline-none cursor-pointer"
+                    aria-label="Ledger starting anchor info"
+                  >
+                    <Info className="w-3.5 h-3.5" />
+                  </button>
+                  {showDateTooltip && (
+                    <div className="absolute left-0 bottom-full mb-2 z-[999] w-64 p-3.5 rounded-xl glass-premium border border-amber-500/20 bg-slate-950/95 shadow-[0_4px_30px_rgba(0,0,0,0.4)] text-left animate-fade-in text-[11px] leading-relaxed">
+                      <div className="flex gap-1.5 items-center mb-1.5 font-bold text-amber-400">
+                        <Clock className="w-3 h-3" />
+                        <span>Tracking Anchor Rule</span>
+                      </div>
+                      <p className="text-muted">
+                        Your chronological ledger starts strictly on your onboarding date: <strong className="text-main font-semibold">{onboardingDateStr}</strong>. Prior dates are greyed out to guarantee mathematical balance accuracy.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              <PremiumDatePicker 
+                value={formData.timestamp} 
+                onChange={(val) => setFormData({ ...formData, timestamp: val })} 
+                maxDate={new Date()} 
+                minDate={onboardingDate || undefined}
+              />
+              
+              {onboardingDateStr && (
+                <div className="mt-2.5 p-2.5 rounded-xl border border-amber-500/10 bg-amber-500/[0.02] flex items-start gap-2 shadow-[0_0_15px_rgba(245,158,11,0.03)]">
+                  <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                  <p className="text-[10px] text-muted leading-normal">
+                    Dates prior to your onboarding date (<strong className="text-main font-medium">{onboardingDateStr}</strong>) are greyed out and disabled. Chronological entries are locked to maintain perfect ledger safety.
+                    <Link 
+                      to="/settings?tab=preferences"
+                      onClick={() => setIsModalOpen(false)}
+                      className="underline font-bold hover:text-amber-100 transition-colors ml-1"
+                    >
+                      Need to log prior transactions? Adjust your Ledger Start Date in Settings.
+                    </Link>
+                  </p>
+                </div>
+              )}
             </div>
 
             {formData.timestamp && (
@@ -858,6 +1193,151 @@ export default function Transactions() {
             <button type="button" onClick={confirmDelete} className="btn-danger">Delete</button>
           </div>
         </div>
+      </Modal>
+
+      {/* Financial Integrity Guard Modal */}
+      <Modal 
+        isOpen={!!safetyAlert} 
+        onClose={() => setSafetyAlert(null)} 
+        title="Financial Integrity Shield"
+      >
+        {safetyAlert && (
+          <div className="space-y-6">
+            {/* Header / Alert Icon */}
+            <div className="flex flex-col items-center text-center space-y-3">
+              <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center text-red-500 border border-red-500/20 animate-pulse">
+                <Shield className="w-8 h-8" />
+              </div>
+              <h3 className="text-xl font-bold text-main">
+                {safetyAlert.category === 'Insufficient funds' ? 'Insufficient Funds' : 
+                 safetyAlert.category === 'Limit exceeded' ? 'Credit Limit Exceeded' :
+                 safetyAlert.category === 'Shared pool limit exceeded' ? 'Shared Pool Limit Exceeded' : 'Spending Limit Exceeded'}
+              </h3>
+              <p className="text-xs text-muted max-w-sm">
+                This transaction has been blocked to prevent your account from going into a negative balance or exceeding its credit limit.
+              </p>
+            </div>
+
+            {/* Structured Card Details */}
+            <div className="rounded-xl border border-white/5 bg-white/[0.02] overflow-hidden">
+              <div className="px-4 py-3 bg-white/[0.04] border-b border-white/5 flex justify-between items-center">
+                <span className="text-xs font-bold text-red-400 flex items-center gap-1.5 uppercase tracking-wider">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  {safetyAlert.category}
+                </span>
+                <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full text-muted font-mono">
+                  {safetyAlert.date}
+                </span>
+              </div>
+              
+              <div className="p-4 grid grid-cols-2 gap-4 divide-x divide-white/5">
+                <div className="space-y-1">
+                  <span className="text-[10px] text-muted uppercase tracking-wider block">Available Balance</span>
+                  <span className="text-lg font-bold text-main font-mono">₹{safetyAlert.availableAmount}</span>
+                </div>
+                <div className="pl-4 space-y-1">
+                  <span className="text-[10px] text-muted uppercase tracking-wider block">Attempted Spend</span>
+                  <span className="text-lg font-bold text-red-400 font-mono">₹{safetyAlert.attemptedAmount}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Explanation & Timeline Visualizer Toggle */}
+            <div className="space-y-3">
+              <div className="text-xs text-muted leading-relaxed bg-white/[0.01] p-4 rounded-lg border border-white/5 space-y-2">
+                <strong className="font-bold text-red-400 block mb-1">What went wrong?</strong>
+                {safetyAlert.category === 'Insufficient funds' && (
+                  <span>
+                    You are trying to record a <strong>₹{safetyAlert.attemptedAmount}</strong> expense on <strong>{safetyAlert.date}</strong>, but your available balance on that date is only <strong>₹{safetyAlert.availableAmount}</strong>. Saving this would cause your account to drop below zero.
+                  </span>
+                )}
+                {safetyAlert.category === 'Limit exceeded' && (
+                  <span>
+                    You are trying to charge <strong>₹{safetyAlert.attemptedAmount}</strong> on <strong>{safetyAlert.date}</strong>, but your available credit limit is only <strong>₹{safetyAlert.availableAmount}</strong>. Saving this would exceed your card's outstanding credit limit.
+                  </span>
+                )}
+                {safetyAlert.category === 'Shared pool limit exceeded' && (
+                  <span>
+                    You are trying to spend <strong>₹{safetyAlert.attemptedAmount}</strong> on <strong>{safetyAlert.date}</strong>, but the shared pool's available credit limit is only <strong>₹{safetyAlert.availableAmount}</strong>. Saving this would exceed the group pool limit.
+                  </span>
+                )}
+                {safetyAlert.category === 'Spending power exceeded' && (
+                  <span>
+                    Your actual spendable credit on <strong>{safetyAlert.date}</strong> is only <strong>₹{safetyAlert.availableAmount}</strong> due to combined card and pool constraints, which is not enough for this <strong>₹{safetyAlert.attemptedAmount}</strong> transaction.
+                  </span>
+                )}
+              </div>
+              
+              {/* Interactive Timeline Detail */}
+              <div className="border border-white/5 rounded-lg overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowTimelineDetails(!showTimelineDetails)}
+                  className="w-full flex justify-between items-center px-4 py-3 bg-white/[0.02] hover:bg-white/[0.04] text-xs font-bold text-main transition-all cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <Database className="w-4 h-4 text-primary" />
+                    Interactive Ledger Analysis
+                  </span>
+                  <span className="text-[10px] text-muted font-normal underline">
+                    {showTimelineDetails ? 'Hide Timeline Flow' : 'Show Timeline Flow'}
+                  </span>
+                </button>
+
+                {showTimelineDetails && (
+                  <div className="p-4 bg-black/20 border-t border-white/5 text-xs text-muted space-y-4 animate-[fadeIn_0.15s_ease-out]">
+                    <div className="flex items-start gap-3">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1 shrink-0" />
+                      <div>
+                        <span className="font-bold text-main block">1. Prior Ledger Balance</span>
+                        <span>Your confirmed available funds before the transaction was ₹{safetyAlert.availableAmount}.</span>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-start gap-3">
+                      <div className="w-1.5 h-1.5 rounded-full bg-red-500 mt-1 shrink-0" />
+                      <div>
+                        <span className="font-bold text-main block">2. Incompatible Action</span>
+                        <span>Attempting to deduct ₹{safetyAlert.attemptedAmount} exceeds your limits by <strong className="text-red-400 font-mono">₹{parseFloat((parseFloat(safetyAlert.attemptedAmount.replace(/,/g, '')) - parseFloat(safetyAlert.availableAmount.replace(/,/g, ''))).toFixed(2))}</strong>.</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-3">
+                      <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-1 shrink-0" />
+                      <div>
+                        <span className="font-bold text-main block">3. Suggested Resolution</span>
+                        <span>Reduce the transaction amount below <strong className="text-emerald-400 font-mono">₹{safetyAlert.availableAmount}</strong>, charge a different account, or log this transaction on a date with higher liquidity.</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="pt-4 border-t border-white/5 flex gap-3">
+              <button 
+                type="button" 
+                onClick={() => {
+                  setSafetyAlert(null);
+                  setIsModalOpen(false);
+                }} 
+                className="btn-secondary flex-1"
+              >
+                Cancel Transaction
+              </button>
+              <button 
+                type="button" 
+                onClick={() => {
+                  setSafetyAlert(null);
+                }} 
+                className="btn-primary flex-1"
+              >
+                Adjust Details
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

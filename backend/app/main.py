@@ -2,7 +2,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
-from app.api import auth, users, categories, sources, transactions, coupons, analytics, notifications
+from app.api import auth, users, categories, sources, transactions, coupons, analytics, notifications, credit_pools, emi, reconciliation
 from app.core.config import settings
 from app.core.rate_limit import limiter
 from slowapi import _rate_limit_exceeded_handler
@@ -73,6 +73,9 @@ app.include_router(transactions.router, prefix=f"{settings.API_V1_STR}/transacti
 app.include_router(coupons.router, prefix=f"{settings.API_V1_STR}/coupons", tags=["coupons"])
 app.include_router(analytics.router, prefix=f"{settings.API_V1_STR}/analytics", tags=["analytics"])
 app.include_router(notifications.router, prefix=f"{settings.API_V1_STR}/notifications", tags=["notifications"])
+app.include_router(credit_pools.router, prefix=f"{settings.API_V1_STR}/credit-pools", tags=["credit-pools"])
+app.include_router(emi.router, prefix=f"{settings.API_V1_STR}/emi", tags=["emi"])
+app.include_router(reconciliation.router, prefix=f"{settings.API_V1_STR}/reconciliation", tags=["reconciliation"])
 
 @app.get("/")
 def root():

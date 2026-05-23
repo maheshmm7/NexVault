@@ -1,5 +1,5 @@
 import { motion, useScroll, useTransform } from 'framer-motion';
-import { useRef } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { BarChart3, ShieldCheck, Zap, Globe, TrendingUp, Wallet, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import SafeChartContainer from '../charts/SafeChartContainer';
@@ -7,15 +7,37 @@ import SafeChartContainer from '../charts/SafeChartContainer';
 const MOCK_CHART_DATA = [
   { name: 'Mon', income: 4000, expense: 2400 },
   { name: 'Tue', income: 3000, expense: 1398 },
-  { name: 'Wed', income: 2000, expense: 9800 },
+  { name: 'Wed', income: 5000, expense: 9800 },
   { name: 'Thu', income: 2780, expense: 3908 },
-  { name: 'Fri', income: 1890, expense: 4800 },
-  { name: 'Sat', income: 2390, expense: 3800 },
-  { name: 'Sun', income: 3490, expense: 4300 },
+  { name: 'Fri', income: 6890, expense: 4800 },
+  { name: 'Sat', income: 8390, expense: 3800 },
+  { name: 'Sun', income: 9490, expense: 4300 },
+];
+
+const MOCK_ASSETS_DATA = [
+  { name: 'Mon', income: 12000 },
+  { name: 'Tue', income: 14500 },
+  { name: 'Wed', income: 13900 },
+  { name: 'Thu', income: 17200 },
+  { name: 'Fri', income: 19800 },
+  { name: 'Sat', income: 22000 },
+  { name: 'Sun', income: 24650 },
 ];
 
 export default function DashboardShowcase() {
   const containerRef = useRef(null);
+  const [chartType, setChartType] = useState('cashflow'); // 'cashflow' | 'assets'
+  const [isLargeDesktop, setIsLargeDesktop] = useState(false);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsLargeDesktop(window.innerWidth >= 1024);
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const { scrollYProgress } = useScroll({
     target: containerRef,
     offset: ["start end", "end start"]
@@ -73,10 +95,10 @@ export default function DashboardShowcase() {
 
         <motion.div 
           style={{ 
-            perspective: 2000,
+            perspective: isLargeDesktop ? 2000 : undefined,
             opacity,
             scale,
-            rotateX
+            rotateX: isLargeDesktop ? rotateX : 0
           }}
           className="relative min-h-[700px] flex items-center justify-center"
         >
@@ -98,20 +120,37 @@ export default function DashboardShowcase() {
               {/* Main Chart Area */}
               <div className="flex-1 relative">
                 <div className="absolute inset-0 flex flex-col">
-                  <div className="flex justify-between items-end mb-8">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-8">
                      <div>
-                        <div className="text-xs font-bold text-muted uppercase tracking-wider mb-1">Cash Flow Trend</div>
-                        <div className="text-3xl font-bold">$12,840.00</div>
+                        <div className="text-xs font-bold text-muted uppercase tracking-wider mb-1">
+                          {chartType === 'cashflow' ? 'Cash Flow Trend' : 'Total Assets Value'}
+                        </div>
+                        <div className="text-3xl font-bold transition-all">
+                          {chartType === 'cashflow' ? '$12,840.00' : '$24,650.00'}
+                        </div>
                      </div>
-                     <div className="flex gap-2">
-                        <div className="px-3 py-1 rounded-full bg-white/5 text-[10px] font-bold">1W</div>
-                        <div className="px-3 py-1 rounded-full bg-primary/20 text-primary text-[10px] font-bold">1M</div>
-                        <div className="px-3 py-1 rounded-full bg-white/5 text-[10px] font-bold">1Y</div>
+                     <div className="flex gap-2 relative z-20">
+                        <button 
+                          onClick={() => setChartType('cashflow')}
+                          className={`px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all cursor-pointer ${
+                            chartType === 'cashflow' ? 'bg-primary/20 text-primary border border-primary/20' : 'bg-white/5 text-muted hover:text-white border border-transparent'
+                          }`}
+                        >
+                          Cash Flow
+                        </button>
+                        <button 
+                          onClick={() => setChartType('assets')}
+                          className={`px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all cursor-pointer ${
+                            chartType === 'assets' ? 'bg-primary/20 text-primary border border-primary/20' : 'bg-white/5 text-muted hover:text-white border border-transparent'
+                          }`}
+                        >
+                          Assets Value
+                        </button>
                      </div>
                   </div>
                   <SafeChartContainer className="opacity-40" height={260} minHeight={200}>
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={MOCK_CHART_DATA}>
+                      <AreaChart data={chartType === 'cashflow' ? MOCK_CHART_DATA : MOCK_ASSETS_DATA}>
                         <defs>
                           <linearGradient id="gIncomeL" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.4} />

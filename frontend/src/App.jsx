@@ -13,13 +13,17 @@ import Signup from './pages/Signup';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import RecoverAccount from './pages/RecoverAccount';
+import Docs from './pages/Docs';
+import Help from './pages/Help';
+import Trust from './pages/Trust';
+import Status from './pages/Status';
 import Dashboard from './pages/Dashboard';
 import Accounts from './pages/Accounts';
 import Vault from './pages/Vault';
 import Transactions from './pages/Transactions';
 import Settings from './pages/Settings';
 import Analytics from './pages/Analytics';
-
+import CreditPools from './pages/CreditPools';
 
 import Landing from './pages/Landing';
 
@@ -39,6 +43,10 @@ function App() {
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password/:token" element={<ResetPassword />} />
                 <Route path="/recover-account" element={<RecoverAccount />} />
+                <Route path="/docs" element={<Docs />} />
+                <Route path="/help" element={<Help />} />
+                <Route path="/trust" element={<Trust />} />
+                <Route path="/status" element={<Status />} />
 
                 {/* Protected Routes */}
                 <Route element={<ProtectedRoute />}>
@@ -54,6 +62,11 @@ function App() {
                     <Route
                       path="/accounts"
                       element={<Accounts />}
+                    />
+
+                    <Route
+                      path="/credit-pools"
+                      element={<CreditPools />}
                     />
 
                     <Route

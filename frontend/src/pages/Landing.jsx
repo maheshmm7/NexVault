@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import Navbar from '../components/landing/Navbar';
 import LandingHero from '../components/landing/LandingHero';
 import DashboardShowcase from '../components/landing/DashboardShowcase';
 import FeatureSections from '../components/landing/FeatureSections';
@@ -30,6 +31,8 @@ export default function Landing() {
         <div className="absolute inset-0 bg-cinematic-gradient" />
       </div>
 
+      <Navbar />
+
       <main className="relative z-10">
         <LandingHero />
         <DashboardShowcase />
@@ -42,3 +45,4 @@ export default function Landing() {
     </div>
   );
 }
+

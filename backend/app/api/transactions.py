@@ -33,12 +33,14 @@ def get_transactions(
 def create_transaction(
     transaction_in: TransactionCreate,
     db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_user)
+    current_user: User = Depends(deps.get_current_user),
+    timezone: str = Depends(deps.get_user_timezone)
 ):
     return transaction_service.create_transaction(
         db=db,
         transaction_in=transaction_in,
-        user_id=current_user.id
+        user_id=current_user.id,
+        tz_name=timezone
     )
 
 @router.put("/{tx_id}", response_model=TransactionResponse)
@@ -46,24 +48,29 @@ def update_transaction(
     tx_id: str,
     transaction_in: TransactionUpdate,
     db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_user)
+    current_user: User = Depends(deps.get_current_user),
+    timezone: str = Depends(deps.get_user_timezone)
 ):
     return transaction_service.update_transaction(
         db=db,
         tx_id=tx_id,
         transaction_in=transaction_in,
-        user_id=current_user.id
+        user_id=current_user.id,
+        tz_name=timezone
     )
 
 @router.delete("/{tx_id}")
 def delete_transaction(
     tx_id: str,
     db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_user)
+    current_user: User = Depends(deps.get_current_user),
+    timezone: str = Depends(deps.get_user_timezone)
 ):
     transaction_service.delete_transaction(
         db=db,
         tx_id=tx_id,
-        user_id=current_user.id
+        user_id=current_user.id,
+        tz_name=timezone
     )
     return {"message": "Transaction deleted successfully"}
+

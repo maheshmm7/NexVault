@@ -27,6 +27,9 @@ from app.models.transaction import Transaction # noqa
 from app.models.coupon import Coupon # noqa
 from app.models.session import UserSession # noqa
 from app.models.notification import Notification # noqa
+from app.models.credit_pool import CreditPool # noqa
+from app.models.emi_obligation import EMIObligation # noqa
+from app.models.reconciliation import ReconciliationLog # noqa
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

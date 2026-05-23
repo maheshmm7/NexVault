@@ -4,12 +4,17 @@ import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import {
     User, Bell, Tag, Clock, Sliders, Palette, Shield, Laptop,
-    ChevronRight, Camera, Upload, Trash2, AlertTriangle, Layers, Plus, Check,
+    ChevronLeft, ChevronRight, Camera, Upload, Trash2, AlertTriangle, Layers, Plus, Check, Calendar, X
 } from 'lucide-react';
 import CustomSelect from '../components/CustomSelect';
 import { BRANDING } from '../config/branding';
 import api from '../services/api';
 import PasswordFeedback from '../components/PasswordFeedback';
+import PremiumDatePicker from '../components/PremiumDatePicker';
+import DatePicker from 'react-datepicker';
+import { motion, AnimatePresence } from 'framer-motion';
+import ImageCropModal from '../components/ImageCropModal';
+
 
 
 // ─── Reusable Toggle ───────────────────────────────────────────────────────────
@@ -73,6 +78,47 @@ const TABS = [
     { id: 'appearance',   label: 'Appearance',    icon: Palette },
     { id: 'danger',      label: 'Data & Privacy',   icon: AlertTriangle },
 ];
+
+const getTodayDateString = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+const getStartOfMonthDateString = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}-01`;
+};
+
+const getStartOfYearDateString = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-01-01`;
+};
+
+const monthsOptions = [
+    { value: 0, label: 'January' },
+    { value: 1, label: 'February' },
+    { value: 2, label: 'March' },
+    { value: 3, label: 'April' },
+    { value: 4, label: 'May' },
+    { value: 5, label: 'June' },
+    { value: 6, label: 'July' },
+    { value: 7, label: 'August' },
+    { value: 8, label: 'September' },
+    { value: 9, label: 'October' },
+    { value: 10, label: 'November' },
+    { value: 11, label: 'December' },
+];
+
+const currentYear = new Date().getFullYear();
+const yearsOptions = Array.from({ length: currentYear - 2015 + 1 }, (_, i) => {
+    const y = 2015 + i;
+    return { value: y, label: String(y) };
+}).reverse();
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function Settings() {
@@ -208,6 +254,8 @@ export default function Settings() {
         }
         return '';
     });
+    const [cropImageSrc, setCropImageSrc] = useState(null);
+    const [isCropModalOpen, setIsCropModalOpen] = useState(false);
 
     const [email,       setEmail]       = useState(user?.email       || '');
 
@@ -264,6 +312,56 @@ export default function Settings() {
     const [isRegenerating, setIsRegenerating] = useState(false);
     const [newRecoveryCode, setNewRecoveryCode] = useState('');
     const [isSavedChecked, setIsSavedChecked] = useState(false);
+    const [notiPermission, setNotiPermission] = useState('default');
+    const [purgeSliderVal, setPurgeSliderVal] = useState(0);
+
+    // Ledger anchor states
+    const [anchorDate, setAnchorDate] = useState(() => {
+        if (user?.created_at) {
+            return user.created_at.split('T')[0];
+        }
+        return '';
+    });
+    const [isSavingAnchor, setIsSavingAnchor] = useState(false);
+    const [isAnchorModalOpen, setIsAnchorModalOpen] = useState(false);
+    const [tempAnchorDate, setTempAnchorDate] = useState('');
+    const weekStart = dateTimePreferences?.weekStart === 'Sunday' ? 0 : 1;
+
+    useEffect(() => {
+        if (user?.created_at) {
+            setAnchorDate(user.created_at.split('T')[0]);
+        }
+    }, [user]);
+
+    useEffect(() => {
+        if ('Notification' in window) {
+            setNotiPermission(Notification.permission);
+        }
+    }, []);
+
+    const requestNotificationPermission = async () => {
+        if ('Notification' in window) {
+            const permission = await Notification.requestPermission();
+            setNotiPermission(permission);
+            if (permission === 'granted') {
+                addToast('Notification permissions granted!', 'success');
+            } else {
+                addToast('Notification permissions denied', 'error');
+            }
+        } else {
+            addToast('Push notifications not supported on this browser', 'warning');
+        }
+    };
+
+    const sendTestNotification = () => {
+        addToast('System Alert: Security configuration verified successfully!', 'success');
+        if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('NexVault Live Portal', {
+                body: 'Security configuration and notification channels are working perfectly.',
+                icon: '/favicon.ico'
+            });
+        }
+    };
 
     useEffect(() => {
         setTempCurrency(currency);
@@ -305,16 +403,23 @@ export default function Settings() {
         const reader = new FileReader();
         reader.onloadend = () => {
             const base64 = reader.result;
-            setAvatarUrl(base64);
-            const key = user ? `${BRANDING.STORAGE_PREFIX}_local_avatar_${user.id}` : `${BRANDING.STORAGE_PREFIX}_local_avatar`;
-            localStorage.setItem(key, base64);
-            window.dispatchEvent(new Event(BRANDING.AVATAR_UPDATE_EVENT));
-
+            setCropImageSrc(base64);
+            setIsCropModalOpen(true);
         };
         reader.readAsDataURL(file);
         
         // Clear input value so same file can be uploaded again if removed
         if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    const handleSaveCroppedAvatar = (croppedBase64) => {
+        setAvatarUrl(croppedBase64);
+        const key = user ? `${BRANDING.STORAGE_PREFIX}_local_avatar_${user.id}` : `${BRANDING.STORAGE_PREFIX}_local_avatar`;
+        localStorage.setItem(key, croppedBase64);
+        window.dispatchEvent(new Event(BRANDING.AVATAR_UPDATE_EVENT));
+        setIsCropModalOpen(false);
+        setCropImageSrc(null);
+        addToast('Avatar photo updated successfully', 'success');
     };
 
     const handleRemoveAvatar = () => {
@@ -338,6 +443,27 @@ export default function Settings() {
     const handleSaveCouponPrefs    = () => { setCouponPreferences(tempCouponPrefs);   addToast('Coupon vault preferences saved', 'success'); };
     const handleSaveDateTimePrefs  = () => { setDateTimePreferences(tempDateTimePrefs); addToast('Date & time preferences saved', 'success'); };
     const handleSavePreferences    = () => { setCurrency(tempCurrency);               addToast('Preferences saved', 'success'); };
+    
+    const handleSaveAnchorDate = async () => {
+        if (!tempAnchorDate) {
+            addToast('Please select a valid date.', 'error');
+            return;
+        }
+        setIsSavingAnchor(true);
+        try {
+            const isoString = `${tempAnchorDate}T00:00:00Z`;
+            await updateProfile({ created_at: isoString });
+            setAnchorDate(tempAnchorDate);
+            addToast('Ledger start date updated successfully', 'success');
+            setIsAnchorModalOpen(false);
+        } catch (error) {
+            console.error("Failed to update ledger anchor:", error);
+            addToast(error.response?.data?.detail || 'Failed to update ledger anchor date', 'error');
+        } finally {
+            setIsSavingAnchor(false);
+        }
+    };
+
     const handleSaveAppearance     = () => { setTheme(tempTheme);                     addToast('Appearance saved', 'success'); };
 
     const handleExportData = async (format) => {
@@ -574,8 +700,30 @@ export default function Settings() {
                         </div>
                     </div>
 
-                    {/* Right Column: Recovery Code (41.7% width, natural content height) */}
-                    <div className="lg:col-span-5 space-y-4 p-5 rounded-xl border animate-fade-in" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+                    {/* Right Column: Recovery Code & Visual Security Trust Halo */}
+                    <div className="lg:col-span-5 space-y-4 p-5 rounded-xl border animate-fade-in text-left" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+                        {/* Security Score Halo Circle */}
+                        <div className="flex items-center gap-4 p-4 rounded-2xl bg-white/[0.015] border border-white/5">
+                            <div className="relative w-16 h-16 shrink-0 flex items-center justify-center">
+                                {/* SVG Circle Progress */}
+                                <svg className="w-full h-full transform -rotate-90">
+                                    <circle cx="32" cy="32" r="28" className="stroke-white/5 fill-transparent" strokeWidth="4" />
+                                    <circle cx="32" cy="32" r="28" className="stroke-primary fill-transparent" strokeWidth="4"
+                                            strokeDasharray={2 * Math.PI * 28}
+                                            strokeDashoffset={2 * Math.PI * 28 * (1 - 0.94)}
+                                            strokeLinecap="round" />
+                                </svg>
+                                <span className="absolute text-xs font-extrabold text-main">94%</span>
+                            </div>
+                            <div>
+                                <span className="text-[10px] font-bold text-muted uppercase tracking-wider block">Security Score</span>
+                                <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5 mt-0.5">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                                    Extremely Secure
+                                </span>
+                            </div>
+                        </div>
+
                         <div className="space-y-3">
                             <div className="flex items-center gap-2">
                                 <Shield className="w-4 h-4 text-primary shrink-0" />
@@ -692,11 +840,13 @@ export default function Settings() {
                                                     {s.device_name || 'Unknown Device'} ({s.os_name || 'Unknown OS'})
                                                 </span>
                                                 {isCurrent ? (
-                                                    <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold border border-primary/20">
+                                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold border border-emerald-500/20">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399]" />
                                                         Current Session
                                                     </span>
                                                 ) : (
-                                                    <span className="px-2 py-0.5 rounded-full bg-white/5 text-muted text-[10px] font-medium border border-white/5">
+                                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/5 text-muted text-[10px] font-medium border border-white/5">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
                                                         Active Now
                                                     </span>
                                                 )}
@@ -917,24 +1067,77 @@ export default function Settings() {
         ),
 
         notifications: (
-            <div className="space-y-2">
-                <SectionTitle description="Manage your system alerts and reminder configurations.">
-                    Notification Preferences
+            <div className="space-y-5 animate-fade-in text-left">
+                <SectionTitle description="Configure notification channels, delivery schedules, and alert thresholds.">
+                    Notifications Portal
                 </SectionTitle>
-                <ToggleRow label="Bill Reminders" description="Get alerted before your accounts or bills are due"
-                    checked={tempNotifications.billReminders}
-                    onChange={(v) => setTempNotifications(p => ({ ...p, billReminders: v }))} />
-                <ToggleRow label="Coupon Expiry Alerts" description="Notifications for coupons nearing expiration dates"
-                    checked={tempNotifications.couponExpiry}
-                    onChange={(v) => setTempNotifications(p => ({ ...p, couponExpiry: v }))} />
-                <ToggleRow label="Monthly Financial Summaries" description="A detailed rundown of your cash flow at month end"
-                    checked={tempNotifications.monthlySummaries}
-                    onChange={(v) => setTempNotifications(p => ({ ...p, monthlySummaries: v }))} />
-                <ToggleRow label="Credit Utilization Alerts" description="Warn me when credit utilization exceeds safe limits"
-                    checked={tempNotifications.creditUtilization}
-                    onChange={(v) => setTempNotifications(p => ({ ...p, creditUtilization: v }))} />
-                <div className="flex justify-end pt-3">
-                    <button onClick={handleSaveNotifications} className="btn-primary">Save Preferences</button>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                    {/* Left Column: Switch toggles */}
+                    <div className="lg:col-span-7 space-y-3">
+                        <ToggleRow label="Bill Reminders" description="Get alerted before your accounts or bills are due"
+                            checked={tempNotifications.billReminders}
+                            onChange={(v) => setTempNotifications(p => ({ ...p, billReminders: v }))} />
+                        <ToggleRow label="Coupon Expiry Alerts" description="Notifications for coupons nearing expiration dates"
+                            checked={tempNotifications.couponExpiry}
+                            onChange={(v) => setTempNotifications(p => ({ ...p, couponExpiry: v }))} />
+                        <ToggleRow label="Monthly Financial Summaries" description="A detailed rundown of your cash flow at month end"
+                            checked={tempNotifications.monthlySummaries}
+                            onChange={(v) => setTempNotifications(p => ({ ...p, monthlySummaries: v }))} />
+                        <ToggleRow label="Credit Utilization Alerts" description="Warn me when credit utilization exceeds safe limits"
+                            checked={tempNotifications.creditUtilization}
+                            onChange={(v) => setTempNotifications(p => ({ ...p, creditUtilization: v }))} />
+                        <div className="flex justify-end pt-3 border-t border-white/5 mt-2">
+                            <button onClick={handleSaveNotifications} className="btn-primary">Save Preferences</button>
+                        </div>
+                    </div>
+
+                    {/* Right Column: Permission Status & Test Sandbox */}
+                    <div className="lg:col-span-5 space-y-4">
+                        {/* Permission Status */}
+                        <div className="p-4 rounded-xl border border-white/5 bg-white/[0.015] space-y-3">
+                            <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-muted uppercase tracking-wide">System Permissions</span>
+                                <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border ${
+                                    notiPermission === 'granted'
+                                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                        : notiPermission === 'denied'
+                                            ? 'bg-danger/10 text-danger border-danger/20'
+                                            : 'bg-primary/10 text-primary border-primary/20'
+                                }`}>
+                                    {notiPermission}
+                                </span>
+                            </div>
+                            
+                            <p className="text-xs text-muted leading-relaxed font-sans">
+                                Enable browser-level push notifications to get real-time alerts even when the dashboard tab is closed.
+                            </p>
+
+                            {notiPermission !== 'granted' && (
+                                <button
+                                    onClick={requestNotificationPermission}
+                                    className="w-full py-2 rounded-lg text-xs font-semibold border border-white/10 hover:bg-white/5 transition-all text-main cursor-pointer"
+                                >
+                                    Request Browser Access
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Sandbox Testing */}
+                        <div className="p-4 rounded-xl border border-white/5 bg-white/[0.015] space-y-3">
+                            <span className="text-[10px] font-bold text-muted uppercase tracking-wide block">Notification Sandbox</span>
+                            <p className="text-xs text-muted leading-relaxed font-sans">
+                                Simulate database-driven and real-time triggers to test visual alert channels instantly.
+                            </p>
+                            <button
+                                onClick={sendTestNotification}
+                                className="w-full btn-primary h-9 flex items-center justify-center gap-2 cursor-pointer text-xs"
+                            >
+                                <Bell className="w-3.5 h-3.5" />
+                                Send Test Notification
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         ),
@@ -1104,6 +1307,59 @@ export default function Settings() {
                 <div className="flex justify-end pt-2">
                     <button onClick={handleSavePreferences} className="btn-primary">Save Preferences</button>
                 </div>
+
+                {/* Ledger Starting Anchor Date Card */}
+                <div className="border-t my-6" style={{ borderColor: 'rgba(255,255,255,0.05)' }} />
+
+                <SectionTitle description="Define the starting point of your financial ledger. All transaction inputs prior to this date are restricted to guarantee balance integrity.">
+                    Ledger Starting Anchor Date
+                </SectionTitle>
+
+                <div className="p-5 rounded-2xl border relative overflow-hidden" 
+                     style={{ 
+                         borderColor: 'rgba(255,255,255,0.06)', 
+                         background: 'linear-gradient(135deg, rgba(255,255,255,0.015) 0%, rgba(255,255,255,0.005) 100%)',
+                         backdropFilter: 'blur(10px)'
+                     }}>
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-[80px] -z-10 pointer-events-none" />
+                    
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+                        <div className="space-y-2">
+                            <span className="text-[10px] font-bold text-muted uppercase tracking-wider block">Current Starting Anchor</span>
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 rounded-xl border border-primary/10 bg-primary/5 text-primary">
+                                    <Calendar className="w-5 h-5 animate-pulse" />
+                                </div>
+                                <div>
+                                    <span className="text-xl font-extrabold tracking-tight text-main block">
+                                        {anchorDate ? (() => {
+                                            const [y, m, d] = anchorDate.split('-');
+                                            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                                            return `${d} ${months[parseInt(m) - 1]} ${y}`;
+                                        })() : 'Not Configured'}
+                                    </span>
+                                    <span className="text-xs text-primary/80 font-semibold flex items-center gap-1.5 mt-0.5">
+                                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                                        Balance Protection Active
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 md:self-end">
+                            <button 
+                                onClick={() => {
+                                    setTempAnchorDate(anchorDate);
+                                    setIsAnchorModalOpen(true);
+                                }}
+                                className="btn-primary flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold tracking-wide transition-all shadow-[0_4px_20px_rgba(59,130,246,0.1)] hover:shadow-[0_4px_25px_rgba(59,130,246,0.25)] cursor-pointer"
+                            >
+                                <Sliders className="w-3.5 h-3.5" />
+                                Configure Anchor Date
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
         ),
 
@@ -1269,22 +1525,64 @@ export default function Settings() {
                                 />
                             </div>
 
+                            {/* Slide to Purge Confirmation */}
+                            <div className="mt-5 space-y-3">
+                                <span className="block text-[10px] font-bold text-muted uppercase tracking-wider text-left">Slide to Purge Confirmation</span>
+                                <div className="relative h-12 rounded-xl bg-black/40 border border-white/10 flex items-center justify-center overflow-hidden">
+                                    {/* Slider fill gradient */}
+                                    <div 
+                                        className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-amber-600/20 to-amber-600/40 transition-all pointer-events-none" 
+                                        style={{ width: `${purgeSliderVal}%` }}
+                                    />
+                                    
+                                    <span className="absolute text-xs font-bold text-main/60 select-none pointer-events-none">
+                                        {purgeSliderVal >= 100 ? "RELEASE TO PURGE" : "SLIDE TO CONFIRM PURGE"}
+                                    </span>
+                                    
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max="100"
+                                        value={purgeSliderVal}
+                                        onChange={(e) => setPurgeSliderVal(Number(e.target.value))}
+                                        onMouseUp={() => {
+                                            if (purgeSliderVal < 100) {
+                                                setPurgeSliderVal(0);
+                                            } else {
+                                                handleClearFinancialData();
+                                            }
+                                        }}
+                                        onTouchEnd={() => {
+                                            if (purgeSliderVal < 100) {
+                                                setPurgeSliderVal(0);
+                                            } else {
+                                                handleClearFinancialData();
+                                            }
+                                        }}
+                                        disabled={!confirmPassword || isPurging}
+                                        className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize disabled:cursor-not-allowed"
+                                    />
+                                    
+                                    {/* Custom handle visual */}
+                                    <div 
+                                        className="absolute w-10 h-10 rounded-lg bg-amber-600 border border-amber-500 shadow flex items-center justify-center transition-all pointer-events-none"
+                                        style={{ left: `calc(${purgeSliderVal}% * 0.8 + 4px)` }}
+                                    >
+                                        <ChevronRight className="w-5 h-5 text-white" />
+                                    </div>
+                                </div>
+                            </div>
+
                             <div className="flex justify-end gap-2 mt-6">
                                 <button
                                     onClick={() => {
                                         setIsClearDataModalOpen(false);
                                         setConfirmPassword('');
+                                        setPurgeSliderVal(0);
                                     }}
                                     className="px-4 py-2 rounded-lg text-xs font-semibold border border-white/10 text-main hover:bg-white/5 transition-all cursor-pointer"
                                 >
                                     Cancel
-                                </button>
-                                <button
-                                    onClick={handleClearFinancialData}
-                                    disabled={isPurging}
-                                    className="px-4 py-2 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white transition-all cursor-pointer"
-                                >
-                                    {isPurging ? 'Purging...' : 'Confirm Purge'}
                                 </button>
                             </div>
                         </div>
@@ -1349,27 +1647,21 @@ export default function Settings() {
 
     return (
         <div className="space-y-5">
-            {/* Page Header */}
-            <div>
-                <h1 className="text-2xl font-bold text-main tracking-tight">Settings</h1>
-                <p className="text-muted mt-1 text-sm">Manage your account preferences and application settings.</p>
-            </div>
-
             {/* Tab Layout */}
             <div className="flex flex-col md:flex-row gap-5 min-h-[500px]">
 
                 {/* Left Tab Nav */}
-                <aside className="md:w-52 shrink-0">
-                    <nav className="card p-2 space-y-0.5">
+                <aside className="md:w-52 shrink-0 overflow-hidden">
+                    <nav className="card p-2 flex flex-row overflow-x-auto gap-2 scrollbar-none md:flex-col md:space-y-0.5 md:gap-0">
                         {TABS.map(({ id, label, icon: Icon }) => {
                             const isActive = activeTab === id;
                             return (
                                 <button
                                     key={id}
                                     onClick={() => setActiveTab(id)}
-                                    className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left ${
+                                    className={`flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl text-xs font-semibold uppercase tracking-wider transition-all whitespace-nowrap shrink-0 md:w-full md:flex md:justify-between md:px-3 md:py-2.5 md:rounded-lg md:text-sm md:font-medium md:normal-case md:tracking-normal ${
                                         isActive
-                                            ? 'text-primary border border-primary/20'
+                                            ? 'text-primary border border-primary/20 bg-primary/5'
                                             : 'text-muted hover:text-main hover:bg-white/[0.04] border border-transparent'
                                     }`}
                                     style={isActive ? { background: 'rgba(59,130,246,0.08)' } : {}}
@@ -1378,7 +1670,7 @@ export default function Settings() {
                                         <Icon className="w-4 h-4 shrink-0" />
                                         {label}
                                     </div>
-                                    {isActive && <ChevronRight className="w-3.5 h-3.5 shrink-0 opacity-60" />}
+                                    {isActive && <ChevronRight className="w-3.5 h-3.5 shrink-0 opacity-60 hidden md:block" />}
                                 </button>
                             );
                         })}
@@ -1524,6 +1816,211 @@ export default function Settings() {
                     </div>
                 </div>
             )}
+
+            {/* Ledger Anchor Date Modal */}
+            <AnimatePresence>
+                {isAnchorModalOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+                        <motion.div
+                            initial={{ scale: 0.95, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.95, opacity: 0 }}
+                            transition={{ duration: 0.2, ease: 'easeOut' }}
+                            className="w-full max-w-md glass-premium p-6 md:p-8 rounded-[28px] border border-white/10 shadow-[0_40px_100px_rgba(0,0,0,0.8)] bg-slate-900/80 relative text-left"
+                        >
+                            {/* Close Button */}
+                            <button
+                                type="button"
+                                onClick={() => setIsAnchorModalOpen(false)}
+                                className="absolute top-5 right-5 text-muted hover:text-main p-1.5 rounded-lg hover:bg-white/5 transition-all cursor-pointer"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+
+                            <h3 className="text-lg font-bold text-main flex items-center gap-2 mb-2">
+                                <Calendar className="w-5 h-5 text-primary" />
+                                Set Ledger Anchor Date
+                            </h3>
+                            
+                            <p className="text-xs text-muted leading-relaxed mb-4">
+                                Choose a starting point for your ledger. All transaction inputs prior to this date will be restricted to guarantee balance integrity.
+                            </p>
+
+                            {/* Warning Banner */}
+                            <div className="p-3 rounded-xl border border-primary/10 bg-primary/[0.02] mb-4 flex items-start gap-2.5">
+                                <AlertTriangle className="w-4.5 h-4.5 text-primary shrink-0 mt-0.5" />
+                                <p className="text-[11px] text-muted leading-relaxed">
+                                    Moving this date backward allows older logs. You cannot move this date to a future date or past existing transaction records.
+                                </p>
+                            </div>
+
+                            {/* Presets Grid */}
+                            <span className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-2">Quick Presets</span>
+                            <div className="grid grid-cols-3 gap-2 mb-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setTempAnchorDate(getTodayDateString())}
+                                    className={`py-2 px-1 rounded-xl text-[11px] font-semibold border transition-all cursor-pointer text-center ${
+                                        tempAnchorDate === getTodayDateString()
+                                            ? 'bg-primary/20 text-primary border-primary/40'
+                                            : 'bg-white/[0.02] border-white/5 text-muted hover:bg-white/[0.06] hover:border-white/10'
+                                    }`}
+                                >
+                                    Today
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setTempAnchorDate(getStartOfMonthDateString())}
+                                    className={`py-2 px-1 rounded-xl text-[11px] font-semibold border transition-all cursor-pointer text-center ${
+                                        tempAnchorDate === getStartOfMonthDateString()
+                                            ? 'bg-primary/20 text-primary border-primary/40'
+                                            : 'bg-white/[0.02] border-white/5 text-muted hover:bg-white/[0.06] hover:border-white/10'
+                                    }`}
+                                >
+                                    Start of Month
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setTempAnchorDate(getStartOfYearDateString())}
+                                    className={`py-2 px-1 rounded-xl text-[11px] font-semibold border transition-all cursor-pointer text-center ${
+                                        tempAnchorDate === getStartOfYearDateString()
+                                            ? 'bg-primary/20 text-primary border-primary/40'
+                                            : 'bg-white/[0.02] border-white/5 text-muted hover:bg-white/[0.06] hover:border-white/10'
+                                    }`}
+                                >
+                                    Start of Year
+                                </button>
+                            </div>
+
+                            {/* Calendar Picker container */}
+                            <span className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-2">Custom Date Picker</span>
+                            <div className="relative w-full mb-4">
+                                <DatePicker
+                                    selected={tempAnchorDate ? new Date(tempAnchorDate) : null}
+                                    onChange={(date) => {
+                                        if (date) {
+                                            const year = date.getFullYear();
+                                            const month = String(date.getMonth() + 1).padStart(2, '0');
+                                            const day = String(date.getDate()).padStart(2, '0');
+                                            setTempAnchorDate(`${year}-${month}-${day}`);
+                                        } else {
+                                            setTempAnchorDate('');
+                                        }
+                                    }}
+                                    dateFormat="dd-MM-yyyy"
+                                    maxDate={new Date()}
+                                    calendarStartDay={weekStart}
+                                    calendarClassName="premium-calendar"
+                                    portalId="root"
+                                    renderCustomHeader={({
+                                        date,
+                                        changeYear,
+                                        changeMonth,
+                                        decreaseMonth,
+                                        increaseMonth,
+                                        prevMonthButtonDisabled,
+                                        nextMonthButtonDisabled,
+                                    }) => (
+                                        <div className="flex items-center justify-between px-1.5 py-1 gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={decreaseMonth}
+                                                disabled={prevMonthButtonDisabled}
+                                                className="p-1 rounded-lg border border-white/10 hover:bg-white/5 disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer flex items-center justify-center shrink-0"
+                                            >
+                                                <ChevronLeft className="w-3.5 h-3.5 text-muted hover:text-main" />
+                                            </button>
+                                            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                                <CustomSelect
+                                                    value={date.getMonth()}
+                                                    onChange={(val) => changeMonth(Number(val))}
+                                                    options={monthsOptions}
+                                                    className="flex-1 min-w-0"
+                                                    buttonClassName="px-2 text-xs font-semibold rounded-lg bg-white/5 border border-white/10 hover:border-white/20 text-main flex items-center justify-between"
+                                                    buttonStyle={{ height: '28px', padding: '0 8px', borderRadius: '8px' }}
+                                                    dropdownClassName="w-32"
+                                                />
+                                                <CustomSelect
+                                                    value={date.getFullYear()}
+                                                    onChange={(val) => changeYear(Number(val))}
+                                                    options={yearsOptions}
+                                                    className="w-[74px] shrink-0"
+                                                    buttonClassName="px-2 text-xs font-semibold rounded-lg bg-white/5 border border-white/10 hover:border-white/20 text-main flex items-center justify-between"
+                                                    buttonStyle={{ height: '28px', padding: '0 8px', borderRadius: '8px' }}
+                                                    dropdownClassName="w-24"
+                                                />
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={increaseMonth}
+                                                disabled={nextMonthButtonDisabled}
+                                                className="p-1 rounded-lg border border-white/10 hover:bg-white/5 disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer flex items-center justify-center shrink-0"
+                                            >
+                                                <ChevronRight className="w-3.5 h-3.5 text-muted hover:text-main" />
+                                            </button>
+                                        </div>
+                                    )}
+                                    className="input-field w-full pr-10 cursor-pointer text-main font-semibold bg-white/5 border border-white/10 hover:border-white/20 focus:border-primary/40 rounded-xl h-11 px-4 transition-all"
+                                    placeholderText="DD-MM-YYYY"
+                                    wrapperClassName="w-full"
+                                    type="text"
+                                />
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted z-10">
+                                    <Calendar className="w-4 h-4" />
+                                </div>
+                            </div>
+
+                            {/* Display target date */}
+                            <div className="flex items-center justify-between p-3.5 rounded-xl border border-white/5 bg-white/[0.01] mb-5">
+                                <span className="text-[10px] text-muted font-bold uppercase tracking-wider">Target Date</span>
+                                <span className="text-xs font-bold text-primary">
+                                    {tempAnchorDate ? (() => {
+                                        const [y, m, d] = tempAnchorDate.split('-');
+                                        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                                        return `${d} ${months[parseInt(m) - 1]} ${y}`;
+                                    })() : 'None Selected'}
+                                </span>
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="flex gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsAnchorModalOpen(false)}
+                                    className="flex-1 h-10 bg-white/5 border border-white/10 hover:bg-white/10 rounded-xl text-xs font-bold text-main transition-all cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSaveAnchorDate}
+                                    disabled={isSavingAnchor}
+                                    className="flex-1 h-10 bg-primary hover:shadow-[0_0_20px_rgba(59,130,246,0.3)] rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2 transition-all cursor-pointer"
+                                >
+                                    {isSavingAnchor ? (
+                                        <>
+                                            <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                            Saving...
+                                        </>
+                                    ) : (
+                                        'Save Start Date'
+                                    )}
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            <ImageCropModal
+                src={cropImageSrc}
+                isOpen={isCropModalOpen}
+                onCancel={() => {
+                    setIsCropModalOpen(false);
+                    setCropImageSrc(null);
+                }}
+                onSave={handleSaveCroppedAvatar}
+            />
         </div>
     );
 }

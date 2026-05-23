@@ -58,10 +58,10 @@ export default function LandingFooter() {
           <div>
             <h4 className="text-white font-bold mb-8 text-sm uppercase tracking-widest">Support</h4>
             <ul className="space-y-4">
-              <li><a href="#" className="text-muted hover:text-primary transition-colors text-sm flex items-center gap-2"><Mail className="w-4 h-4" /> Help Center</a></li>
-              <li><a href="#" className="text-muted hover:text-primary transition-colors text-sm flex items-center gap-2"><Shield className="w-4 h-4" /> Trust Center</a></li>
-              <li><a href="#" className="text-muted hover:text-primary transition-colors text-sm flex items-center gap-2"><Zap className="w-4 h-4" /> System Status</a></li>
-              <li><a href="#" className="text-muted hover:text-primary transition-colors text-sm flex items-center gap-2"><Info className="w-4 h-4" /> Documentation</a></li>
+              <li><Link to="/help" className="text-muted hover:text-primary transition-colors text-sm flex items-center gap-2"><Mail className="w-4 h-4" /> Help Center</Link></li>
+              <li><Link to="/trust" className="text-muted hover:text-primary transition-colors text-sm flex items-center gap-2"><Shield className="w-4 h-4" /> Trust Center</Link></li>
+              <li><Link to="/status" className="text-muted hover:text-primary transition-colors text-sm flex items-center gap-2"><Zap className="w-4 h-4" /> System Status</Link></li>
+              <li><Link to="/docs" className="text-muted hover:text-primary transition-colors text-sm flex items-center gap-2"><Info className="w-4 h-4" /> Documentation</Link></li>
             </ul>
           </div>
         </div>

@@ -11,6 +11,9 @@ from app.models.transaction import Transaction
 from app.models.coupon import Coupon
 from app.models.session import UserSession
 from app.models.notification import Notification
+from app.models.credit_pool import CreditPool
+from app.models.emi_obligation import EMIObligation
+from app.models.reconciliation import ReconciliationLog
 from app.core.rate_limit import limiter
 from app.core.config import settings
 from datetime import datetime, timedelta, timezone
@@ -79,8 +82,8 @@ def send_verification_email(email: str, code: str):
     except Exception as e:
         logger.error(f"SMTP delivery failed during onboarding email verification: {str(e)}")
         if not settings.COOKIE_SECURE:
-            print("[DEVELOPMENT ONLY FALLBACK] SMTP failed. Printing verification code in console:")
-            print("VERIFICATION CODE FOR USER:", email, "IS:", code)
+            logger.warning("[DEVELOPMENT ONLY FALLBACK] SMTP failed. Logging verification code locally:")
+            logger.info(f"VERIFICATION CODE FOR USER: {email} IS: {code}")
 
 @router.post("/signup", response_model=UserSignupResponse, status_code=status.HTTP_201_CREATED)
 def create_user(user_in: UserCreate, db: Session = Depends(deps.get_db)):
@@ -135,9 +138,49 @@ def read_user_me(current_user: User = Depends(deps.get_current_user)):
 @router.put("/me", response_model=UserResponse)
 def update_user_me(
     user_in: UserUpdate,
+    request: Request,
     db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_user),
+    user_timezone: str = Depends(deps.get_user_timezone),
 ):
+    if user_in.created_at is not None:
+        from zoneinfo import ZoneInfo
+        now_utc = datetime.now(timezone.utc)
+        
+        try:
+            user_local_proposed = user_in.created_at.astimezone(ZoneInfo(user_timezone))
+        except Exception:
+            user_local_proposed = user_in.created_at
+            
+        try:
+            local_now = now_utc.astimezone(ZoneInfo(user_timezone))
+        except Exception:
+            local_now = now_utc
+            
+        if user_local_proposed.date() > local_now.date():
+            raise HTTPException(
+                status_code=400,
+                detail="Ledger Starting Anchor Date cannot be set in the future."
+            )
+            
+        oldest_tx = db.query(Transaction).filter(
+            Transaction.user_id == current_user.id
+        ).order_by(Transaction.timestamp.asc()).first()
+        
+        if oldest_tx:
+            try:
+                tx_local = oldest_tx.timestamp.astimezone(ZoneInfo(user_timezone))
+            except Exception:
+                tx_local = oldest_tx.timestamp
+                
+            if tx_local.date() < user_local_proposed.date():
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot move Ledger Starting Anchor to {user_local_proposed.strftime('%d/%m/%Y')} because you have an existing transaction recorded on {tx_local.strftime('%d/%m/%Y')}. Please adjust or delete that transaction first."
+                )
+
+        current_user.created_at = user_in.created_at
+
     if user_in.email and user_in.email != current_user.email:
         email_exists = db.query(User).filter(User.email == user_in.email).first()
         if email_exists:
@@ -274,6 +317,7 @@ def seed_demo_data(
 DEFAULT_SETTINGS = {
     "currency": "INR",
     "theme": "dark",
+    "onboardingAcknowledged": False,
     "notifications": {
         "billReminders": True,
         "couponExpiry": True,
@@ -385,10 +429,14 @@ def clear_financial_data(
         )
 
     try:
-        # Delete only transaction, payment source, and coupon data
+        # Delete related child records first to satisfy DB constraints, then parent tables
         db.query(Transaction).filter(Transaction.user_id == current_user.id).delete()
+        db.query(ReconciliationLog).filter(ReconciliationLog.user_id == current_user.id).delete()
+        db.query(EMIObligation).filter(EMIObligation.user_id == current_user.id).delete()
         db.query(PaymentSource).filter(PaymentSource.user_id == current_user.id).delete()
+        db.query(CreditPool).filter(CreditPool.user_id == current_user.id).delete()
         db.query(Coupon).filter(Coupon.user_id == current_user.id).delete()
+        db.query(Notification).filter(Notification.user_id == current_user.id).delete()
         db.commit()
     except Exception as e:
         db.rollback()

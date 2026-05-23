@@ -73,10 +73,12 @@ def get_current_user(
     return user
 
 def get_user_timezone(request: Request) -> str:
-    tz = request.headers.get("X-User-Timezone") or "UTC"
+    tz = request.headers.get("X-User-Timezone")
+    if not tz:
+        return settings.DEFAULT_TIMEZONE
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
     try:
         ZoneInfo(tz)
         return tz
     except (ZoneInfoNotFoundError, ValueError, TypeError):
-        return "UTC"
+        return settings.DEFAULT_TIMEZONE

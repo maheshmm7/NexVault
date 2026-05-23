@@ -33,19 +33,20 @@ def override_get_db():
     finally:
         db.close()
 
-app.dependency_overrides[get_db] = override_get_db
-
 @pytest.fixture(scope="module", autouse=True)
 def setup_db():
+    app.dependency_overrides[get_db] = override_get_db
     Base.metadata.create_all(bind=engine)
     yield
     Base.metadata.drop_all(bind=engine)
+    if get_db in app.dependency_overrides:
+        del app.dependency_overrides[get_db]
 
 client = TestClient(app)
 
 # ── Helpers ────────────────────────────────────────────────────────
 USER_EMAIL = "test@vaultify.com"
-USER_PASSWORD = "securepass123"
+USER_PASSWORD = "SecurePass@123"
 USER2_EMAIL = "other@vaultify.com"
 
 def get_token(email=USER_EMAIL, password=USER_PASSWORD) -> str:
@@ -88,6 +89,7 @@ def test_get_me():
     assert r.json()["email"] == USER_EMAIL
 
 def test_protected_route_without_token():
+    client.cookies.clear()
     r = client.get("/api/v1/users/me")
     assert r.status_code == 401
 
@@ -330,6 +332,100 @@ def test_analytics_user_isolation():
     assert r.status_code == 200
     assert r.json()["total_balance"] == 0.0
     assert r.json()["monthly_income"] == 0.0
+# ══════════════════════════════════════════════════════════════════
+# 6b. CREDIT POOLS & SYNCHRONIZATION
+# ══════════════════════════════════════════════════════════════════
+def test_credit_pool_sync_lifecycle():
+    email = "pool_user@vaultify.com"
+    password = "SecurePass@123"
+    client.post("/api/v1/users/signup", json={"email": email, "password": password})
+    token = get_token(email, password)
+    
+    # 1. Create a Credit Pool
+    pool_r = client.post("/api/v1/credit-pools/", json={
+        "name": "Super Shared Pool",
+        "total_limit": 100000.00,
+        "statement_day": 5,
+        "due_day": 25
+    }, headers=auth_headers(token))
+    assert pool_r.status_code == 200
+    pool = pool_r.json()
+    pool_id = pool["id"]
+    assert float(pool["total_limit"]) == 100000.00
+    assert float(pool["utilized_limit"]) == 0.00
+    assert float(pool["available_limit"]) == 100000.00
+
+    # Create a Category for transactions
+    cat_r = client.post("/api/v1/categories/", json={
+        "name": "Food & Dining", "type": "expense", "color": "#EF4444", "icon": "utensils"
+    }, headers=auth_headers(token))
+    assert cat_r.status_code == 200
+    category_id = cat_r.json()["id"]
+
+    # 2. Create Card 1 linked to pool
+    card1_r = client.post("/api/v1/sources/", json={
+        "name": "Freedom Card",
+        "type": "credit_card",
+        "balance": 15000.00,  # utilized balance
+        "credit_limit": 40000.00,
+        "available_limit": 25000.00,
+        "credit_pool_id": pool_id,
+        "billing_date": "05",
+        "due_date": "25"
+    }, headers=auth_headers(token))
+    assert card1_r.status_code == 200
+    card1_id = card1_r.json()["id"]
+
+    # Verify pool synchronized utilized balance = 15000
+    pool_r = client.get(f"/api/v1/credit-pools/", headers=auth_headers(token))
+    pool_data = next(p for p in pool_r.json() if p["id"] == pool_id)
+    assert float(pool_data["utilized_limit"]) == 15000.00
+    assert float(pool_data["available_limit"]) == 85000.00
+
+    # 3. Create Card 2 linked to pool
+    card2_r = client.post("/api/v1/sources/", json={
+        "name": "Swiggy Card",
+        "type": "credit_card",
+        "balance": 5000.00,  # utilized balance
+        "credit_limit": 50000.00,
+        "available_limit": 45000.00,
+        "credit_pool_id": pool_id,
+        "billing_date": "05",
+        "due_date": "25"
+    }, headers=auth_headers(token))
+    assert card2_r.status_code == 200
+
+    # Verify pool synchronized utilized balance = 20000 (15000 + 5000)
+    pool_r = client.get(f"/api/v1/credit-pools/", headers=auth_headers(token))
+    pool_data = next(p for p in pool_r.json() if p["id"] == pool_id)
+    assert float(pool_data["utilized_limit"]) == 20000.00
+    assert float(pool_data["available_limit"]) == 80000.00
+
+    # 4. Add a transaction on Card 1 (expense of 2,000)
+    tx_r = client.post("/api/v1/transactions/", json={
+        "source_id": card1_id,
+        "category_id": category_id,
+        "amount": "2000.00",
+        "type": "expense",
+        "notes": "Pool Card Transaction"
+    }, headers=auth_headers(token))
+    assert tx_r.status_code == 200
+    tx_id = tx_r.json()["id"]
+
+    # Verify pool utilized balance is updated to 22000
+    pool_r = client.get(f"/api/v1/credit-pools/", headers=auth_headers(token))
+    pool_data = next(p for p in pool_r.json() if p["id"] == pool_id)
+    assert float(pool_data["utilized_limit"]) == 22000.00
+    assert float(pool_data["available_limit"]) == 78000.00
+
+    # 5. Delete transaction
+    client.delete(f"/api/v1/transactions/{tx_id}", headers=auth_headers(token))
+
+    # Verify pool utilized reverted to 20000
+    pool_r = client.get(f"/api/v1/credit-pools/", headers=auth_headers(token))
+    pool_data = next(p for p in pool_r.json() if p["id"] == pool_id)
+    assert float(pool_data["utilized_limit"]) == 20000.00
+    assert float(pool_data["available_limit"]) == 80000.00
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -338,8 +434,9 @@ def test_analytics_user_isolation():
 def test_seed_demo_data_new_user():
     """Fresh user can seed demo data"""
     seed_email = "seed@vaultify.com"
-    client.post("/api/v1/users/signup", json={"email": seed_email, "password": "pass1234"})
-    token = get_token(seed_email, "pass1234")
+    r = client.post("/api/v1/users/signup", json={"email": seed_email, "password": "SecurePass@982"})
+    assert r.status_code == 201, f"Signup failed: {r.text}"
+    token = get_token(seed_email, "SecurePass@982")
 
     r = client.post("/api/v1/users/seed-demo-data", headers=auth_headers(token))
     assert r.status_code == 200
@@ -357,6 +454,6 @@ def test_seed_demo_data_new_user():
 def test_seed_demo_data_idempotent():
     """Seeding twice should be rejected"""
     seed_email = "seed@vaultify.com"
-    token = get_token(seed_email, "pass1234")
+    token = get_token(seed_email, "SecurePass@982")
     r = client.post("/api/v1/users/seed-demo-data", headers=auth_headers(token))
     assert r.status_code == 400

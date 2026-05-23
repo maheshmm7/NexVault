@@ -21,6 +21,10 @@ export default function CustomSelect({
   className = '',
   disabled = false,
   required = false,
+  buttonClassName = '',
+  buttonStyle = {},
+  dropdownClassName = '',
+  dropdownStyle = {},
 }) {
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(-1);
@@ -106,7 +110,8 @@ export default function CustomSelect({
         onClick={() => !disabled && setOpen(v => !v)}
         className={`input-field flex items-center text-left w-full cursor-pointer ${
           disabled ? 'opacity-50 cursor-not-allowed' : ''
-        } ${!selected ? 'text-muted' : ''}`}
+        } ${!selected ? 'text-muted' : ''} ${buttonClassName}`}
+        style={buttonStyle}
       >
         <span className="truncate flex-1">{selected ? selected.label : placeholder}</span>
       </button>
@@ -118,7 +123,7 @@ export default function CustomSelect({
           ref={listRef}
           role="listbox"
           aria-label="Options"
-          className="absolute z-[9999] mt-1.5 py-1.5 rounded-xl shadow-2xl border overflow-hidden overflow-y-auto animate-fade-in"
+          className={`absolute z-[9999] mt-1.5 py-1.5 rounded-xl shadow-2xl border overflow-hidden overflow-y-auto animate-fade-in ${dropdownClassName}`}
           style={{
             background: 'var(--surface)',
             borderColor: 'rgba(255,255,255,0.1)',
@@ -126,6 +131,7 @@ export default function CustomSelect({
             maxHeight: '220px',
             minWidth: '100%',
             width: 'max-content',
+            ...dropdownStyle,
           }}
         >
           {options.map((opt, idx) => {

@@ -6,8 +6,10 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Vaultify API"
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str = "supersecretkey_change_in_production"
+    VAULT_ENCRYPTION_KEY: str = "default_vaultify_aes_gcm_secret_key_32bytes_!"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7 # 7 days
     DATABASE_URL: str = "sqlite:///./vaultify.db"
+    DEFAULT_TIMEZONE: str = "Asia/Kolkata"
     
     # Cookie Security Settings
     COOKIE_SECURE: bool = False  # Set to True in production (HTTPS)
@@ -24,10 +26,27 @@ class Settings(BaseSettings):
     def __init__(self, **values):
         super().__init__(**values)
         # Automatic runtime default adjustments for production PostgreSQL envs
-        if "postgresql" in self.DATABASE_URL or "postgres" in self.DATABASE_URL:
+        is_production = "postgresql" in self.DATABASE_URL or "postgres" in self.DATABASE_URL
+        if is_production:
             # Force COOKIE_SECURE default to True for HTTPS production environments
             if "COOKIE_SECURE" not in values:
                 self.COOKIE_SECURE = True
+            
+            # Prevent static default fallback key or missing key in production
+            fallback_key = "default_vaultify_aes_gcm_secret_key_32bytes_!"
+            if not self.VAULT_ENCRYPTION_KEY or self.VAULT_ENCRYPTION_KEY == fallback_key:
+                raise ValueError(
+                    "Security Startup Error: VAULT_ENCRYPTION_KEY must be set to a secure, "
+                    "non-default value in production environments (PostgreSQL database detected)."
+                )
+
+            # Prevent static default fallback key or missing key for SECRET_KEY in production
+            fallback_secret = "supersecretkey_change_in_production"
+            if not self.SECRET_KEY or self.SECRET_KEY == fallback_secret:
+                raise ValueError(
+                    "Security Startup Error: SECRET_KEY must be set to a secure, "
+                    "non-default value in production environments (PostgreSQL database detected)."
+                )
 
     @property
     def cors_origins(self) -> List[str]:
